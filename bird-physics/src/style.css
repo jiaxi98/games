@@ -1,0 +1,141 @@
+:root {
+  --ink: #1d2a1f;
+  --ink-soft: #3a523e;
+  --panel: rgba(253, 249, 233, 0.9);
+  --line: rgba(58, 82, 62, 0.22);
+  --accent: #b25030;
+  --shadow: 0 24px 48px rgba(63, 76, 57, 0.22);
+  font-family: 'IBM Plex Sans', 'Trebuchet MS', sans-serif;
+  color: var(--ink);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: radial-gradient(circle at 12% -5%, #fff7d8 0, transparent 38%),
+    radial-gradient(circle at 82% 8%, #d3e2bd 0, transparent 42%),
+    linear-gradient(170deg, #dce9cd, #b8cca2);
+}
+
+#app {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: 1.15rem;
+}
+
+.layout {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.9rem;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.hero h1 {
+  margin: 0;
+  font-family: 'Space Grotesk', 'Avenir Next', sans-serif;
+  font-size: clamp(1.65rem, 2.6vw, 2.35rem);
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.77rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.subtitle {
+  margin: 0.3rem 0 0;
+  max-width: 90ch;
+  color: var(--ink-soft);
+}
+
+.hud {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.5rem 0.7rem;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.hud p {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+}
+
+.hud strong {
+  color: var(--ink);
+  font-family: 'IBM Plex Mono', 'Consolas', monospace;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+button {
+  border: 1px solid rgba(97, 64, 39, 0.35);
+  background: #f8f0dc;
+  color: #2f261f;
+  border-radius: 10px;
+  padding: 0.5rem 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #f6e6bf;
+}
+
+canvas {
+  width: 100%;
+  max-width: 960px;
+  justify-self: center;
+  border: 2px solid #6b7c5a;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+  background: #e7f0dc;
+}
+
+kbd {
+  border: 1px solid #8a9878;
+  border-radius: 6px;
+  background: #f8fbe9;
+  padding: 0 0.35rem;
+  font-family: 'IBM Plex Mono', 'Consolas', monospace;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 760px) {
+  #app {
+    padding: 0.6rem;
+  }
+
+  .layout {
+    padding: 0.7rem;
+    border-radius: 12px;
+  }
+
+  .controls p {
+    margin: 0;
+    width: 100%;
+    font-size: 0.9rem;
+  }
+}
