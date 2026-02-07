@@ -13,7 +13,7 @@ export const TIME_STEP = 1 / 60;
 export const VELOCITY_ITERATIONS = 8;
 export const POSITION_ITERATIONS = 3;
 
-export const SLING_ANCHOR: Vec2Like = { x: 4.2, y: 13.6 };
+export const SLING_ANCHOR: Vec2Like = { x: 4.2, y: 14.15 };
 export const MAX_DRAG_DISTANCE = 2.2;
 export const LAUNCH_POWER = 4.7;
 export const MAX_LAUNCH_SPEED = 22;

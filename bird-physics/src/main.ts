@@ -290,24 +290,43 @@ function drawBackground(): void {
   const groundTop = scene.groundY * PIXELS_PER_METER;
   context.fillStyle = '#6f8f4f';
   context.fillRect(0, groundTop, canvas.width, canvas.height - groundTop);
+
+  for (const block of scene.terrainBlocks) {
+    const left = (block.x - block.hx) * PIXELS_PER_METER;
+    const top = (block.y - block.hy) * PIXELS_PER_METER;
+    const width = block.hx * 2 * PIXELS_PER_METER;
+    const height = block.hy * 2 * PIXELS_PER_METER;
+    context.fillStyle = block.color;
+    context.fillRect(left, top, width, height);
+    context.strokeStyle = 'rgba(50, 74, 36, 0.25)';
+    context.lineWidth = 2;
+    context.strokeRect(left, top, width, height);
+  }
 }
 
 function drawSlingshot(): void {
   const anchor = worldToCanvas(scene.anchor);
-  const postHeight = 70;
+  const groundTop = scene.groundY * PIXELS_PER_METER;
+  const postTop = anchor.y - 68;
+  const postBottom = groundTop + 2;
 
   context.fillStyle = '#6f4f32';
-  context.fillRect(anchor.x - 18, anchor.y - postHeight, 9, postHeight + 16);
-  context.fillRect(anchor.x + 9, anchor.y - postHeight, 9, postHeight + 16);
+  context.fillRect(anchor.x - 18, postTop, 9, postBottom - postTop);
+  context.fillRect(anchor.x + 9, postTop, 9, postBottom - postTop);
+
+  context.fillStyle = '#835a39';
+  context.beginPath();
+  context.ellipse(anchor.x, groundTop - 2, 32, 10, 0, 0, Math.PI * 2);
+  context.fill();
 
   if (phase === 'aiming') {
     const birdPos = worldToCanvas(scene.bird.body.getPosition());
     context.strokeStyle = '#4e3825';
     context.lineWidth = 4;
     context.beginPath();
-    context.moveTo(anchor.x - 9, anchor.y - postHeight + 12);
+    context.moveTo(anchor.x - 9, postTop + 14);
     context.lineTo(birdPos.x, birdPos.y);
-    context.lineTo(anchor.x + 18, anchor.y - postHeight + 12);
+    context.lineTo(anchor.x + 18, postTop + 14);
     context.stroke();
   }
 }

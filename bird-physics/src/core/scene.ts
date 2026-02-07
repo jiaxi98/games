@@ -2,12 +2,21 @@ import * as planck from 'planck';
 import { GRAVITY_Y, GROUND_Y, SLING_ANCHOR, WORLD_WIDTH } from './constants';
 import type { PhysicsEntity } from './types';
 
+export interface TerrainBlock {
+  x: number;
+  y: number;
+  hx: number;
+  hy: number;
+  color: string;
+}
+
 export interface PhysicsScene {
   world: planck.World;
   anchor: planck.Vec2;
   bird: PhysicsEntity;
   entities: Map<string, PhysicsEntity>;
   bodyToEntity: Map<planck.Body, PhysicsEntity>;
+  terrainBlocks: TerrainBlock[];
   groundY: number;
 }
 
@@ -23,6 +32,7 @@ export function createPhysicsScene(): PhysicsScene {
   const world = new planck.World(planck.Vec2(0, GRAVITY_Y));
   const entities = new Map<string, PhysicsEntity>();
   const bodyToEntity = new Map<planck.Body, PhysicsEntity>();
+  const terrainBlocks: TerrainBlock[] = [];
 
   const nextWoodId = createEntityIdFactory('wood');
   const nextPigId = createEntityIdFactory('pig');
@@ -33,11 +43,18 @@ export function createPhysicsScene(): PhysicsScene {
     restitution: 0.06,
   });
 
-  const enemyPlatform = world.createBody({ position: planck.Vec2(22, 15.95) });
-  enemyPlatform.createFixture(planck.Box(5.4, 0.35), {
-    friction: 0.9,
-    restitution: 0.05,
-  });
+  function createTerrainBlock(x: number, y: number, hx: number, hy: number, color: string): void {
+    const body = world.createBody({ position: planck.Vec2(x, y) });
+    body.createFixture(planck.Box(hx, hy), {
+      friction: 1.0,
+      restitution: 0.0,
+    });
+    terrainBlocks.push({ x, y, hx, hy, color });
+  }
+
+  // Grounded static bases for the slingshot area and enemy structure.
+  createTerrainBlock(4.2, 15.45, 1.45, 0.95, '#8ea866');
+  createTerrainBlock(21.3, 16.05, 5.25, 0.35, '#829c5e');
 
   const anchor = planck.Vec2(SLING_ANCHOR.x, SLING_ANCHOR.y);
   const birdBody = world.createDynamicBody({
@@ -72,13 +89,13 @@ export function createPhysicsScene(): PhysicsScene {
     const body = world.createDynamicBody({
       position,
       angle,
-      linearDamping: 0.26,
-      angularDamping: 1.2,
+      linearDamping: 0.35,
+      angularDamping: 1.7,
     });
     body.createFixture(planck.Box(hx, hy), {
-      density: 0.95,
-      friction: 0.72,
-      restitution: 0.08,
+      density: 0.84,
+      friction: 0.9,
+      restitution: 0.03,
     });
 
     const maxHealth = 18 + (hx + hy) * 9;
@@ -101,13 +118,13 @@ export function createPhysicsScene(): PhysicsScene {
   function registerPig(position: planck.Vec2): PhysicsEntity {
     const body = world.createDynamicBody({
       position,
-      linearDamping: 0.24,
-      angularDamping: 1.1,
+      linearDamping: 0.32,
+      angularDamping: 1.5,
     });
     body.createFixture(planck.Circle(0.38), {
       density: 1.2,
-      friction: 0.45,
-      restitution: 0.15,
+      friction: 0.55,
+      restitution: 0.08,
     });
 
     const entity: PhysicsEntity = {
@@ -126,17 +143,18 @@ export function createPhysicsScene(): PhysicsScene {
     return entity;
   }
 
-  // Main structure and targets.
-  registerWoodBlock(planck.Vec2(20.35, 14.5), 0.24, 1.4, 0.02);
-  registerWoodBlock(planck.Vec2(22.1, 14.5), 0.24, 1.4, -0.02);
-  registerWoodBlock(planck.Vec2(21.25, 13.25), 1.08, 0.22, 0);
-  registerWoodBlock(planck.Vec2(21.25, 12.0), 0.24, 1.0, 0.05);
-  registerWoodBlock(planck.Vec2(20.7, 11.0), 0.8, 0.22, 0.07);
-  registerWoodBlock(planck.Vec2(21.8, 11.0), 0.8, 0.22, -0.06);
-  registerWoodBlock(planck.Vec2(23.0, 15.05), 0.22, 0.9, 0.12);
+  // Stable, symmetric structure layout: no initial tilt and no floating bodies.
+  registerWoodBlock(planck.Vec2(20.25, 14.5), 0.24, 1.2, 0);
+  registerWoodBlock(planck.Vec2(21.3, 14.5), 0.24, 1.2, 0);
+  registerWoodBlock(planck.Vec2(22.35, 14.5), 0.24, 1.2, 0);
+  registerWoodBlock(planck.Vec2(21.3, 13.1), 2.2, 0.21, 0);
 
-  registerPig(planck.Vec2(21.2, 12.35));
-  registerPig(planck.Vec2(21.2, 10.35));
+  registerWoodBlock(planck.Vec2(20.55, 11.95), 0.22, 0.95, 0);
+  registerWoodBlock(planck.Vec2(22.05, 11.95), 0.22, 0.95, 0);
+  registerWoodBlock(planck.Vec2(21.3, 10.8), 1.55, 0.2, 0);
+
+  registerPig(planck.Vec2(21.3, 12.5));
+  registerPig(planck.Vec2(21.3, 10.2));
 
   return {
     world,
@@ -144,6 +162,7 @@ export function createPhysicsScene(): PhysicsScene {
     bird,
     entities,
     bodyToEntity,
+    terrainBlocks,
     groundY: GROUND_Y,
   };
 }
