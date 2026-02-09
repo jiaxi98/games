@@ -1,0 +1,43 @@
+name: Container Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - feature/**
+
+jobs:
+  container-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect app module
+        id: app
+        run: |
+          if [ -f "sandbox-survival/package.json" ]; then
+            echo "path=sandbox-survival" >> "$GITHUB_OUTPUT"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=sandbox-survival" >> "$GITHUB_OUTPUT"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run containerized tests
+        if: steps.app.outputs.exists == 'true'
+        run: bash scripts/test-in-container.sh --app-dir "${{ steps.app.outputs.path }}" --image "games-test-env:${{ github.sha }}"
+
+      - name: Skip notice (module not ready)
+        if: steps.app.outputs.exists != 'true'
+        run: echo "sandbox-survival/package.json not found yet; skipping container tests."
+
+      - name: Upload test artifacts
+        if: always() && steps.app.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-test-artifacts
+          path: artifacts/container/
+          if-no-files-found: ignore

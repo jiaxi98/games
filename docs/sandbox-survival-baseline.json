@@ -1,0 +1,79 @@
+{
+  "generatedAt": "2026-02-09T07:33:30.256Z",
+  "commit": "62c41be",
+  "environment": "firefox headless @ http://127.0.0.1:4173",
+  "results": [
+    {
+      "mapKey": "wildlands",
+      "heading": "Wildlands Frontier: River canyon wilderness with a compact industrial city.",
+      "startupMs": 973,
+      "rendererStatus": "ready (fallback)",
+      "fps": {
+        "avgFps": 60.00540048604374,
+        "minFps": 58.275058275057994,
+        "maxFps": 62.18905472636932
+      },
+      "renderMetrics": {
+        "rendererStatus": "ready (fallback)",
+        "drawCalls": null,
+        "triangles": null,
+        "frame": null,
+        "playerLayer": "surface"
+      },
+      "mapSwitchOk": true,
+      "transportOk": true,
+      "transportMessage": "elevator: Elevator Upper Lobby -> Metro Elevator Concourse",
+      "saveLoadOk": true,
+      "saveStatus": "saved",
+      "loadStatus": "loaded save"
+    },
+    {
+      "mapKey": "tiananmen",
+      "heading": "Tiananmen Inspired Plaza: Monumental central axis, ceremonial square, and fortified gate silhouette.",
+      "startupMs": 668,
+      "rendererStatus": "ready (fallback)",
+      "fps": {
+        "avgFps": 60.00420029402059,
+        "minFps": 57.937427578215555,
+        "maxFps": 62.18905472636844
+      },
+      "renderMetrics": {
+        "rendererStatus": "ready (fallback)",
+        "drawCalls": null,
+        "triangles": null,
+        "frame": null,
+        "playerLayer": "surface"
+      },
+      "mapSwitchOk": true,
+      "transportOk": true,
+      "transportMessage": "elevator: Elevator Upper Lobby -> Metro Elevator Concourse",
+      "saveLoadOk": true,
+      "saveStatus": "saved",
+      "loadStatus": "loaded save"
+    },
+    {
+      "mapKey": "yiheyuan",
+      "heading": "Summer Palace Inspired Garden: Lakeside promenade, pavilion cluster, and hillside garden district.",
+      "startupMs": 686,
+      "rendererStatus": "ready (fallback)",
+      "fps": {
+        "avgFps": 60.01020173429483,
+        "minFps": 58.072009291522164,
+        "maxFps": 62.18905472636844
+      },
+      "renderMetrics": {
+        "rendererStatus": "ready (fallback)",
+        "drawCalls": null,
+        "triangles": null,
+        "frame": null,
+        "playerLayer": "surface"
+      },
+      "mapSwitchOk": true,
+      "transportOk": true,
+      "transportMessage": "elevator: Elevator Upper Lobby -> Metro Elevator Concourse",
+      "saveLoadOk": true,
+      "saveStatus": "saved",
+      "loadStatus": "loaded save"
+    }
+  ]
+}
