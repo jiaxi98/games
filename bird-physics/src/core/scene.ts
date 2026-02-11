@@ -1,6 +1,13 @@
-import * as planck from 'planck';
-import { GRAVITY_Y, GROUND_Y, SLING_ANCHOR, WORLD_WIDTH } from './constants';
-import type { PhysicsEntity } from './types';
+import * as planck from "planck";
+import { GRAVITY_Y, WORLD_WIDTH } from "./constants";
+import {
+  DEFAULT_LEVEL,
+  type EntityArchetypeConfig,
+  type EntitySpawnConfig,
+  type LevelConfig,
+  type SceneryPropConfig,
+} from "./level";
+import { ENTITY_ROLE, type EntityKind, type EntityRole, type EntityShape, type PhysicsEntity } from "./types";
 
 export interface TerrainBlock {
   x: number;
@@ -8,6 +15,7 @@ export interface TerrainBlock {
   hx: number;
   hy: number;
   color: string;
+  angle: number;
 }
 
 export interface PhysicsScene {
@@ -17,6 +25,7 @@ export interface PhysicsScene {
   entities: Map<string, PhysicsEntity>;
   bodyToEntity: Map<planck.Body, PhysicsEntity>;
   terrainBlocks: TerrainBlock[];
+  sceneryProps: SceneryPropConfig[];
   groundY: number;
 }
 
@@ -28,151 +37,178 @@ function createEntityIdFactory(prefix: string): () => string {
   };
 }
 
-export function createPhysicsScene(): PhysicsScene {
+function cloneShape(shape: EntityShape): EntityShape {
+  if (shape.kind === "circle") {
+    return { kind: "circle", radius: shape.radius };
+  }
+  return { kind: "box", hx: shape.hx, hy: shape.hy };
+}
+
+function createPlanckShape(shape: EntityShape): planck.Circle | planck.Polygon {
+  if (shape.kind === "circle") {
+    return planck.Circle(shape.radius);
+  }
+  return planck.Box(shape.hx, shape.hy);
+}
+
+function shapeSizeMetric(shape: EntityShape): number {
+  if (shape.kind === "circle") {
+    return shape.radius;
+  }
+  return shape.hx + shape.hy;
+}
+
+function buildEntity(
+  world: planck.World,
+  spawn: EntitySpawnConfig,
+  archetype: EntityArchetypeConfig,
+  nextEntityId: (kind: EntityKind) => string,
+): PhysicsEntity {
+  const shape = cloneShape(spawn.shapeOverride ?? archetype.shape);
+  const body = world.createDynamicBody({
+    position: planck.Vec2(spawn.position.x, spawn.position.y),
+    angle: spawn.angle ?? 0,
+    linearDamping: archetype.body.linearDamping,
+    angularDamping: archetype.body.angularDamping,
+    bullet: archetype.body.bullet,
+  });
+
+  body.createFixture(createPlanckShape(shape), {
+    density: archetype.fixture.density,
+    friction: archetype.fixture.friction,
+    restitution: archetype.fixture.restitution,
+  });
+
+  if (archetype.body.gravityScale !== undefined) {
+    body.setGravityScale(archetype.body.gravityScale);
+  }
+  if (archetype.body.sleepingAllowed !== undefined) {
+    body.setSleepingAllowed(archetype.body.sleepingAllowed);
+  }
+
+  const durability = archetype.durability;
+  const sizeMetric = shapeSizeMetric(shape);
+  const maxHealth =
+    spawn.maxHealthOverride ?? durability.maxHealth + (durability.maxHealthPerSize ?? 0) * sizeMetric;
+  const breakImpulse =
+    spawn.breakImpulseOverride ?? durability.breakImpulse + (durability.breakImpulsePerSize ?? 0) * sizeMetric;
+
+  return {
+    id: spawn.id ?? nextEntityId(archetype.kind),
+    kind: archetype.kind,
+    roles: [...archetype.roles],
+    shape,
+    body,
+    maxHealth,
+    health: maxHealth,
+    breakImpulse,
+    scoreValue: spawn.scoreValueOverride ?? archetype.scoreValue,
+    color: spawn.colorOverride ?? archetype.color,
+  };
+}
+
+export function createPhysicsScene(level: LevelConfig = DEFAULT_LEVEL): PhysicsScene {
   const world = new planck.World(planck.Vec2(0, GRAVITY_Y));
   const entities = new Map<string, PhysicsEntity>();
   const bodyToEntity = new Map<planck.Body, PhysicsEntity>();
   const terrainBlocks: TerrainBlock[] = [];
 
-  const nextWoodId = createEntityIdFactory('wood');
-  const nextPigId = createEntityIdFactory('pig');
+  const idFactories = new Map<EntityKind, () => string>();
+  const nextEntityId = (kind: EntityKind): string => {
+    let factory = idFactories.get(kind);
+    if (!factory) {
+      factory = createEntityIdFactory(kind);
+      idFactories.set(kind, factory);
+    }
+    return factory();
+  };
 
   const ground = world.createBody();
-  ground.createFixture(planck.Edge(planck.Vec2(0, GROUND_Y), planck.Vec2(WORLD_WIDTH, GROUND_Y)), {
-    friction: 0.95,
-    restitution: 0.06,
+  ground.createFixture(planck.Edge(planck.Vec2(0, level.ground.y), planck.Vec2(WORLD_WIDTH, level.ground.y)), {
+    friction: level.ground.friction,
+    restitution: level.ground.restitution,
   });
 
-  function createTerrainBlock(x: number, y: number, hx: number, hy: number, color: string): void {
-    const body = world.createBody({ position: planck.Vec2(x, y) });
-    body.createFixture(planck.Box(hx, hy), {
-      friction: 1.0,
-      restitution: 0.0,
-    });
-    terrainBlocks.push({ x, y, hx, hy, color });
+  function createTerrainBlock(
+    x: number,
+    y: number,
+    hx: number,
+    hy: number,
+    color: string,
+    angle = 0,
+    solid = true,
+  ): void {
+    if (solid) {
+      const body = world.createBody({ position: planck.Vec2(x, y), angle });
+      body.createFixture(planck.Box(hx, hy), {
+        friction: 1,
+        restitution: 0,
+      });
+    }
+    terrainBlocks.push({ x, y, hx, hy, color, angle });
   }
 
-  // Grounded static bases for the slingshot area and enemy structure.
-  createTerrainBlock(4.2, 15.45, 1.45, 0.95, '#8ea866');
-  createTerrainBlock(21.3, 16.05, 5.25, 0.35, '#829c5e');
+  for (const block of level.terrainBlocks) {
+    createTerrainBlock(
+      block.x,
+      block.y,
+      block.hx,
+      block.hy,
+      block.color,
+      block.angle ?? 0,
+      block.solid ?? true,
+    );
+  }
 
-  const anchor = planck.Vec2(SLING_ANCHOR.x, SLING_ANCHOR.y);
-  const birdBody = world.createDynamicBody({
-    position: anchor.clone(),
-    linearDamping: 0.2,
-    angularDamping: 0.8,
-    bullet: true,
-  });
-  birdBody.createFixture(planck.Circle(0.36), {
-    density: 3,
-    friction: 0.52,
-    restitution: 0.2,
-  });
-  birdBody.setGravityScale(0);
-  birdBody.setSleepingAllowed(false);
+  let bird: PhysicsEntity | null = null;
+  for (const spawn of level.spawns) {
+    const archetype = level.entityTypes[spawn.typeId];
+    if (!archetype) {
+      throw new Error(`Unknown entity typeId: ${spawn.typeId}`);
+    }
 
-  const bird: PhysicsEntity = {
-    id: 'bird-main',
-    kind: 'bird',
-    shape: { kind: 'circle', radius: 0.36 },
-    body: birdBody,
-    maxHealth: 999,
-    health: 999,
-    breakImpulse: Number.POSITIVE_INFINITY,
-    scoreValue: 0,
-    color: '#d9432f',
-  };
-  entities.set(bird.id, bird);
-  bodyToEntity.set(birdBody, bird);
+    const entity = buildEntity(world, spawn, archetype, nextEntityId);
+    if (entities.has(entity.id)) {
+      throw new Error(`Duplicate entity id in level config: ${entity.id}`);
+    }
 
-  function registerWoodBlock(position: planck.Vec2, hx: number, hy: number, angle = 0): PhysicsEntity {
-    const body = world.createDynamicBody({
-      position,
-      angle,
-      linearDamping: 0.35,
-      angularDamping: 1.7,
-    });
-    body.createFixture(planck.Box(hx, hy), {
-      density: 0.84,
-      friction: 0.9,
-      restitution: 0.03,
-    });
-
-    const maxHealth = 18 + (hx + hy) * 9;
-    const entity: PhysicsEntity = {
-      id: nextWoodId(),
-      kind: 'wood',
-      shape: { kind: 'box', hx, hy },
-      body,
-      maxHealth,
-      health: maxHealth,
-      breakImpulse: 3.2 + (hx + hy) * 0.8,
-      scoreValue: 120,
-      color: '#9c6a3b',
-    };
     entities.set(entity.id, entity);
-    bodyToEntity.set(body, entity);
-    return entity;
+    bodyToEntity.set(entity.body, entity);
+
+    if (entity.id === level.playerEntityId) {
+      bird = entity;
+    }
   }
 
-  function registerPig(position: planck.Vec2): PhysicsEntity {
-    const body = world.createDynamicBody({
-      position,
-      linearDamping: 0.32,
-      angularDamping: 1.5,
-    });
-    body.createFixture(planck.Circle(0.38), {
-      density: 1.2,
-      friction: 0.55,
-      restitution: 0.08,
-    });
-
-    const entity: PhysicsEntity = {
-      id: nextPigId(),
-      kind: 'pig',
-      shape: { kind: 'circle', radius: 0.38 },
-      body,
-      maxHealth: 12,
-      health: 12,
-      breakImpulse: 2.1,
-      scoreValue: 500,
-      color: '#7ecb65',
-    };
-    entities.set(entity.id, entity);
-    bodyToEntity.set(body, entity);
-    return entity;
+  if (!bird) {
+    throw new Error(`Player entity not found for id: ${level.playerEntityId}`);
   }
-
-  // Stable, symmetric structure layout: no initial tilt and no floating bodies.
-  registerWoodBlock(planck.Vec2(20.25, 14.5), 0.24, 1.2, 0);
-  registerWoodBlock(planck.Vec2(21.3, 14.5), 0.24, 1.2, 0);
-  registerWoodBlock(planck.Vec2(22.35, 14.5), 0.24, 1.2, 0);
-  registerWoodBlock(planck.Vec2(21.3, 13.1), 2.2, 0.21, 0);
-
-  registerWoodBlock(planck.Vec2(20.55, 11.95), 0.22, 0.95, 0);
-  registerWoodBlock(planck.Vec2(22.05, 11.95), 0.22, 0.95, 0);
-  registerWoodBlock(planck.Vec2(21.3, 10.8), 1.55, 0.2, 0);
-
-  registerPig(planck.Vec2(21.3, 12.5));
-  registerPig(planck.Vec2(21.3, 10.2));
 
   return {
     world,
-    anchor,
+    anchor: planck.Vec2(level.anchor.x, level.anchor.y),
     bird,
     entities,
     bodyToEntity,
     terrainBlocks,
-    groundY: GROUND_Y,
+    sceneryProps: level.sceneryProps.map((item) => ({ ...item })),
+    groundY: level.ground.y,
   };
 }
 
-export function countAlivePigs(scene: PhysicsScene): number {
+export function hasRole(entity: PhysicsEntity, role: EntityRole): boolean {
+  return entity.roles.includes(role);
+}
+
+export function countAliveTargets(scene: PhysicsScene): number {
   let count = 0;
   for (const entity of scene.entities.values()) {
-    if (entity.kind === 'pig') {
+    if (hasRole(entity, ENTITY_ROLE.TARGET)) {
       count += 1;
     }
   }
   return count;
 }
+
+// Backward-compatible alias used by existing callers.
+export const countAlivePigs = countAliveTargets;

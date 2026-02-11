@@ -13,6 +13,9 @@ dist-ssr
 *.local
 .npm-cache
 coverage
+playwright-report
+test-results
+artifacts/screenshots
 
 # Editor directories and files
 .vscode/*

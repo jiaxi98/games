@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { calculateLaunchVelocity, clampDragPosition, computeImpactDamage } from '../../src/core/physics';
+import {
+  calculateLaunchVelocity,
+  clampDragPosition,
+  clampPointToBounds,
+  computeImpactDamage,
+} from '../../src/core/physics';
 
 describe('physics helpers', () => {
   it('clamps drag point to the configured maximum distance', () => {
@@ -17,6 +22,14 @@ describe('physics helpers', () => {
     const clamped = clampDragPosition(anchor, pointer, 3);
 
     expect(clamped).toEqual(pointer);
+  });
+
+  it('clamps point coordinates to safety bounds', () => {
+    const point = clampPointToBounds(
+      { x: -3, y: 22 },
+      { minX: 0.36, maxX: 29.64, minY: 0.36, maxY: 16.02 },
+    );
+    expect(point).toEqual({ x: 0.36, y: 16.02 });
   });
 
   it('computes launch velocity from anchor to dragged position', () => {

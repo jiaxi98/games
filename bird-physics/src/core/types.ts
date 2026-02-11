@@ -4,7 +4,19 @@ export type GamePhase = 'idle' | 'aiming' | 'launched' | 'resolved';
 
 export type GameResult = 'pending' | 'victory' | 'defeat';
 
-export type EntityKind = 'bird' | 'pig' | 'wood';
+export const ENTITY_KIND = {
+  BIRD: 'bird',
+  PIG: 'pig',
+  WOOD: 'wood',
+} as const;
+export type EntityKind = (typeof ENTITY_KIND)[keyof typeof ENTITY_KIND];
+
+export const ENTITY_ROLE = {
+  PROJECTILE: 'projectile',
+  TARGET: 'target',
+  STRUCTURE: 'structure',
+} as const;
+export type EntityRole = (typeof ENTITY_ROLE)[keyof typeof ENTITY_ROLE];
 
 export type EntityShape =
   | {
@@ -20,6 +32,7 @@ export type EntityShape =
 export interface PhysicsEntity {
   id: string;
   kind: EntityKind;
+  roles: EntityRole[];
   shape: EntityShape;
   body: Body;
   maxHealth: number;

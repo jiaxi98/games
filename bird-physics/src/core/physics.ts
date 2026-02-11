@@ -20,6 +20,20 @@ export function clampDragPosition(anchor: Vec2Like, pointer: Vec2Like, maxDistan
   };
 }
 
+export interface Bounds2D {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+export function clampPointToBounds(point: Vec2Like, bounds: Bounds2D): Vec2Like {
+  return {
+    x: Math.max(bounds.minX, Math.min(bounds.maxX, point.x)),
+    y: Math.max(bounds.minY, Math.min(bounds.maxY, point.y)),
+  };
+}
+
 export function calculateLaunchVelocity(
   anchor: Vec2Like,
   draggedPosition: Vec2Like,

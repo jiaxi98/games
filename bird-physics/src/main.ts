@@ -3,20 +3,22 @@ import './style.css';
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
+  GRAVITY_Y,
   LAUNCH_POWER,
   MAX_DRAG_DISTANCE,
   MAX_LAUNCH_SPEED,
   PIXELS_PER_METER,
   POSITION_ITERATIONS,
-  ROUND_TIMEOUT_MS,
-  STATIONARY_FRAME_LIMIT,
   TIME_STEP,
   VELOCITY_ITERATIONS,
-  WORLD_HEIGHT,
   WORLD_WIDTH,
 } from './core/constants';
-import { calculateLaunchVelocity, clampDragPosition, computeImpactDamage } from './core/physics';
-import { countAlivePigs, createPhysicsScene } from './core/scene';
+import { evaluateRoundState, flushDestroyedBodies } from './core/game-state';
+import type { SceneryLayer, SceneryPropConfig } from './core/level';
+import { calculateLaunchVelocity, clampDragPosition, clampPointToBounds, computeImpactDamage } from './core/physics';
+import { phaseLabel, phaseMessage } from './core/round';
+import { countAliveTargets, createPhysicsScene, hasRole } from './core/scene';
+import { ENTITY_ROLE } from './core/types';
 import type { GamePhase, GameResult, PhysicsEntity, Vec2Like } from './core/types';
 
 const app = requireElement<HTMLDivElement>('#app');
@@ -152,7 +154,7 @@ function bindCollisionListener(): void {
 
 function applyImpact(body: planck.Body, totalImpact: number): void {
   const entity = scene.bodyToEntity.get(body);
-  if (!entity || entity.kind === 'bird') {
+  if (!entity || hasRole(entity, ENTITY_ROLE.PROJECTILE)) {
     return;
   }
 
@@ -169,7 +171,15 @@ function applyImpact(body: planck.Body, totalImpact: number): void {
 
 function updateAiming(pointer: Vec2Like): void {
   const clamped = clampDragPosition(scene.anchor, pointer, MAX_DRAG_DISTANCE);
-  scene.bird.body.setTransform(planck.Vec2(clamped.x, clamped.y), 0);
+  const radius = scene.bird.shape.kind === 'circle' ? scene.bird.shape.radius : 0;
+  const safe = clampPointToBounds(clamped, {
+    minX: radius,
+    maxX: WORLD_WIDTH - radius,
+    minY: radius,
+    maxY: scene.groundY - radius - 0.02,
+  });
+
+  scene.bird.body.setTransform(planck.Vec2(safe.x, safe.y), 0);
   scene.bird.body.setGravityScale(0);
   scene.bird.body.setLinearVelocity(planck.Vec2(0, 0));
   scene.bird.body.setAngularVelocity(0);
@@ -192,50 +202,6 @@ function releaseLaunch(pointerId: number): void {
   phase = 'launched';
   launchedAtMs = performance.now();
   stationaryFrames = 0;
-}
-
-function flushDestroyedBodies(): void {
-  for (const entityId of pendingDestroy) {
-    const entity = scene.entities.get(entityId);
-    if (!entity) {
-      continue;
-    }
-    score += entity.scoreValue;
-    scene.bodyToEntity.delete(entity.body);
-    scene.world.destroyBody(entity.body);
-    scene.entities.delete(entityId);
-  }
-  pendingDestroy.clear();
-}
-
-function updateRoundState(nowMs: number): void {
-  if (phase !== 'launched') {
-    return;
-  }
-
-  const pigsRemaining = countAlivePigs(scene);
-  if (pigsRemaining === 0) {
-    phase = 'resolved';
-    result = 'victory';
-    return;
-  }
-
-  const birdVelocity = scene.bird.body.getLinearVelocity().length();
-  const birdAngularVelocity = Math.abs(scene.bird.body.getAngularVelocity());
-  if (birdVelocity < 0.18 && birdAngularVelocity < 0.22) {
-    stationaryFrames += 1;
-  } else {
-    stationaryFrames = 0;
-  }
-
-  const birdPos = scene.bird.body.getPosition();
-  const outOfBounds =
-    birdPos.x < -2 || birdPos.x > WORLD_WIDTH + 2 || birdPos.y < -2 || birdPos.y > WORLD_HEIGHT + 2;
-  const timedOut = nowMs - launchedAtMs > ROUND_TIMEOUT_MS;
-  if (outOfBounds || timedOut || stationaryFrames > STATIONARY_FRAME_LIMIT) {
-    phase = 'resolved';
-    result = 'defeat';
-  }
 }
 
 function resetRound(): void {
@@ -262,8 +228,15 @@ function loop(nowMs: number): void {
 
   while (accumulator >= TIME_STEP) {
     scene.world.step(TIME_STEP, VELOCITY_ITERATIONS, POSITION_ITERATIONS);
-    flushDestroyedBodies();
-    updateRoundState(nowMs);
+    score += flushDestroyedBodies(scene, pendingDestroy);
+    const nextRound = evaluateRoundState(
+      scene,
+      { phase, result, launchedAtMs, stationaryFrames },
+      nowMs,
+    );
+    phase = nextRound.phase;
+    result = nextRound.result;
+    stationaryFrames = nextRound.stationaryFrames;
     accumulator -= TIME_STEP;
   }
 
@@ -278,30 +251,175 @@ function worldToCanvas(value: Vec2Like): Vec2Like {
   };
 }
 
+function worldLengthToCanvas(value: number): number {
+  return value * PIXELS_PER_METER;
+}
+
+function drawSceneryProp(prop: SceneryPropConfig): void {
+  const x = worldLengthToCanvas(prop.x);
+  const y = worldLengthToCanvas(prop.y);
+  const baseColor = prop.color ?? '#6e8456';
+  const scale = prop.scale;
+
+  context.save();
+  if (prop.opacity !== undefined) {
+    context.globalAlpha = prop.opacity;
+  }
+
+  switch (prop.kind) {
+    case 'cloud': {
+      const width = worldLengthToCanvas((prop.width ?? 2.2) * scale);
+      const height = worldLengthToCanvas((prop.height ?? 0.85) * scale);
+      context.fillStyle = baseColor === '#6e8456' ? '#f4f6ee' : baseColor;
+      context.beginPath();
+      context.ellipse(x - width * 0.26, y, width * 0.34, height * 0.4, 0, 0, Math.PI * 2);
+      context.ellipse(x + width * 0.08, y - height * 0.08, width * 0.38, height * 0.46, 0, 0, Math.PI * 2);
+      context.ellipse(x + width * 0.35, y + height * 0.04, width * 0.3, height * 0.34, 0, 0, Math.PI * 2);
+      context.fill();
+      break;
+    }
+    case 'mountain': {
+      const width = worldLengthToCanvas((prop.width ?? 6.2) * scale);
+      const height = worldLengthToCanvas((prop.height ?? 4.5) * scale);
+      context.fillStyle = baseColor;
+      context.beginPath();
+      context.moveTo(x - width / 2, y);
+      context.quadraticCurveTo(x - width * 0.24, y - height * 0.84, x - width * 0.04, y - height);
+      context.quadraticCurveTo(x + width * 0.2, y - height * 0.78, x + width / 2, y);
+      context.closePath();
+      context.fill();
+      context.fillStyle = 'rgba(242, 244, 236, 0.26)';
+      context.beginPath();
+      context.moveTo(x - width * 0.07, y - height * 0.82);
+      context.lineTo(x + width * 0.12, y - height * 0.52);
+      context.lineTo(x - width * 0.18, y - height * 0.46);
+      context.closePath();
+      context.fill();
+      break;
+    }
+    case 'hill': {
+      const width = worldLengthToCanvas((prop.width ?? 3.4) * scale);
+      const height = worldLengthToCanvas((prop.height ?? 1.8) * scale);
+      context.fillStyle = baseColor;
+      context.beginPath();
+      context.ellipse(x, y, width / 2, height / 2, 0, Math.PI, Math.PI * 2);
+      context.lineTo(x + width / 2, y);
+      context.lineTo(x - width / 2, y);
+      context.closePath();
+      context.fill();
+      break;
+    }
+    case 'tree': {
+      const trunkWidth = worldLengthToCanvas(0.2 * scale);
+      const trunkHeight = worldLengthToCanvas(0.8 * scale);
+      context.fillStyle = '#5f4a30';
+      context.fillRect(x - trunkWidth / 2, y - trunkHeight, trunkWidth, trunkHeight);
+
+      const canopyRadius = worldLengthToCanvas(0.6 * scale);
+      context.fillStyle = baseColor;
+      context.beginPath();
+      context.arc(x, y - trunkHeight, canopyRadius, 0, Math.PI * 2);
+      context.arc(x - canopyRadius * 0.68, y - trunkHeight * 0.86, canopyRadius * 0.7, 0, Math.PI * 2);
+      context.arc(x + canopyRadius * 0.66, y - trunkHeight * 0.84, canopyRadius * 0.68, 0, Math.PI * 2);
+      context.fill();
+      break;
+    }
+    case 'bush': {
+      const radius = worldLengthToCanvas(0.42 * scale);
+      context.fillStyle = baseColor;
+      context.beginPath();
+      context.arc(x - radius * 0.8, y - radius * 0.2, radius * 0.75, 0, Math.PI * 2);
+      context.arc(x, y - radius * 0.35, radius, 0, Math.PI * 2);
+      context.arc(x + radius * 0.82, y - radius * 0.22, radius * 0.72, 0, Math.PI * 2);
+      context.fill();
+      break;
+    }
+    case 'rock': {
+      const width = worldLengthToCanvas(0.9 * scale);
+      const height = worldLengthToCanvas(0.46 * scale);
+      context.fillStyle = baseColor;
+      context.beginPath();
+      context.moveTo(x - width * 0.5, y);
+      context.lineTo(x - width * 0.2, y - height);
+      context.lineTo(x + width * 0.3, y - height * 0.86);
+      context.lineTo(x + width * 0.5, y - height * 0.14);
+      context.lineTo(x + width * 0.22, y + height * 0.12);
+      context.closePath();
+      context.fill();
+      break;
+    }
+    default:
+      break;
+  }
+
+  context.restore();
+}
+
+function drawSceneryLayer(layer: SceneryLayer): void {
+  for (const prop of scene.sceneryProps) {
+    if (prop.layer === layer) {
+      drawSceneryProp(prop);
+    }
+  }
+}
+
+function drawTerrainBlock(block: (typeof scene.terrainBlocks)[number]): void {
+  const center = worldToCanvas({ x: block.x, y: block.y });
+  const width = block.hx * 2 * PIXELS_PER_METER;
+  const height = block.hy * 2 * PIXELS_PER_METER;
+  const edgeShade = block.angle === 0 ? 'rgba(52, 68, 42, 0.34)' : 'rgba(37, 51, 31, 0.4)';
+
+  context.save();
+  context.translate(center.x, center.y);
+  context.rotate(block.angle);
+  context.fillStyle = block.color;
+  context.fillRect(-width / 2, -height / 2, width, height);
+  context.strokeStyle = edgeShade;
+  context.lineWidth = 2;
+  context.strokeRect(-width / 2, -height / 2, width, height);
+  context.restore();
+}
+
 function drawBackground(): void {
   const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
-  gradient.addColorStop(0, '#f8eec9');
-  gradient.addColorStop(0.55, '#d8e7c2');
-  gradient.addColorStop(1, '#a6c991');
+  gradient.addColorStop(0, '#d8e8f2');
+  gradient.addColorStop(0.44, '#d8e6cf');
+  gradient.addColorStop(1, '#9fb981');
 
   context.fillStyle = gradient;
   context.fillRect(0, 0, canvas.width, canvas.height);
 
+  const sun = context.createRadialGradient(
+    worldLengthToCanvas(24.5),
+    worldLengthToCanvas(3.2),
+    worldLengthToCanvas(0.35),
+    worldLengthToCanvas(24.5),
+    worldLengthToCanvas(3.2),
+    worldLengthToCanvas(4.6),
+  );
+  sun.addColorStop(0, 'rgba(255, 238, 182, 0.52)');
+  sun.addColorStop(1, 'rgba(255, 238, 182, 0)');
+  context.fillStyle = sun;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  drawSceneryLayer('far');
+  drawSceneryLayer('mid');
+
   const groundTop = scene.groundY * PIXELS_PER_METER;
-  context.fillStyle = '#6f8f4f';
+  context.fillStyle = '#5f7c42';
   context.fillRect(0, groundTop, canvas.width, canvas.height - groundTop);
 
-  for (const block of scene.terrainBlocks) {
-    const left = (block.x - block.hx) * PIXELS_PER_METER;
-    const top = (block.y - block.hy) * PIXELS_PER_METER;
-    const width = block.hx * 2 * PIXELS_PER_METER;
-    const height = block.hy * 2 * PIXELS_PER_METER;
-    context.fillStyle = block.color;
-    context.fillRect(left, top, width, height);
-    context.strokeStyle = 'rgba(50, 74, 36, 0.25)';
-    context.lineWidth = 2;
-    context.strokeRect(left, top, width, height);
+  context.fillStyle = 'rgba(220, 230, 165, 0.2)';
+  for (let x = 0; x < canvas.width; x += 46) {
+    const y = groundTop + ((x / 46) % 2 === 0 ? 2 : 5);
+    context.fillRect(x, y, 18, 3);
   }
+
+  for (const block of scene.terrainBlocks) {
+    drawTerrainBlock(block);
+  }
+
+  drawSceneryLayer('front');
 }
 
 function drawSlingshot(): void {
@@ -337,7 +455,7 @@ function drawAimTrajectory(): void {
   }
   const birdPos = scene.bird.body.getPosition();
   const velocity = calculateLaunchVelocity(scene.anchor, birdPos, LAUNCH_POWER, MAX_LAUNCH_SPEED);
-  const gravity = 9.8;
+  const gravity = GRAVITY_Y;
 
   context.fillStyle = 'rgba(36, 45, 26, 0.7)';
   for (let i = 1; i <= 20; i += 1) {
@@ -380,7 +498,7 @@ function drawEntity(entity: PhysicsEntity): void {
     context.fill();
     context.globalAlpha = 1;
 
-    if (entity.kind === 'pig') {
+    if (hasRole(entity, ENTITY_ROLE.TARGET)) {
       context.fillStyle = '#223820';
       context.beginPath();
       context.arc(-radius * 0.26, -radius * 0.1, radius * 0.09, 0, Math.PI * 2);
@@ -402,31 +520,11 @@ function drawEntity(entity: PhysicsEntity): void {
   context.restore();
 }
 
-function phaseLabel(): string {
-  if (phase === 'resolved') {
-    return result === 'victory' ? 'Resolved (Victory)' : 'Resolved (Defeat)';
-  }
-  return phase[0].toUpperCase() + phase.slice(1);
-}
-
-function phaseMessage(): string {
-  switch (phase) {
-    case 'idle':
-      return 'Grab the bird and pull backward.';
-    case 'aiming':
-      return 'Release to launch.';
-    case 'launched':
-      return 'Flight in progress.';
-    case 'resolved':
-      return result === 'victory' ? 'All pigs eliminated.' : 'No more effective motion.';
-  }
-}
-
 function renderHud(): void {
   scoreEl.textContent = String(score);
-  targetsEl.textContent = String(countAlivePigs(scene));
-  stateEl.textContent = phaseLabel();
-  roundMessageEl.textContent = phaseMessage();
+  targetsEl.textContent = String(countAliveTargets(scene));
+  stateEl.textContent = phaseLabel(phase, result);
+  roundMessageEl.textContent = phaseMessage(phase, result);
 }
 
 function render(): void {

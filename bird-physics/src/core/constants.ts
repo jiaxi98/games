@@ -14,9 +14,11 @@ export const VELOCITY_ITERATIONS = 8;
 export const POSITION_ITERATIONS = 3;
 
 export const SLING_ANCHOR: Vec2Like = { x: 4.2, y: 14.15 };
-export const MAX_DRAG_DISTANCE = 2.2;
-export const LAUNCH_POWER = 4.7;
-export const MAX_LAUNCH_SPEED = 22;
+export const MAX_DRAG_DISTANCE = 3.2;
+export const LAUNCH_POWER = 7.5;
+export const MAX_LAUNCH_SPEED = 38;
 
+export const MOTION_LINEAR_THRESHOLD = 0.18;
+export const MOTION_ANGULAR_THRESHOLD = 0.22;
 export const STATIONARY_FRAME_LIMIT = 125;
 export const ROUND_TIMEOUT_MS = 22_000;
