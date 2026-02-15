@@ -11,6 +11,11 @@ class Settings(BaseSettings):
   sqlite_db_path: str = 'data/personal_os.db'
   ingest_token: str = 'dev-ingest-token'
   cors_allow_origins: str = ''
+  llm_mode: Literal['mock', 'openai_compatible'] = 'mock'
+  llm_api_base: str = 'https://api.openai.com/v1'
+  llm_api_key: str = ''
+  llm_model: str = 'gpt-4o-mini'
+  llm_timeout_seconds: float = 30.0
   wechat_dry_run: bool = True
   wechat_push_mode: Literal['mock', 'real'] = 'mock'
   wechat_api_base: str = 'https://api.weixin.qq.com'

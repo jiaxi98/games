@@ -15,6 +15,8 @@ def client(tmp_path, monkeypatch):
   monkeypatch.setenv('PERSONAL_OS_SQLITE_DB_PATH', str(db_path))
   monkeypatch.setenv('PERSONAL_OS_INGEST_TOKEN', 'test-ingest-token')
   monkeypatch.setenv('PERSONAL_OS_CORS_ALLOW_ORIGINS', 'http://localhost:5173')
+  monkeypatch.setenv('PERSONAL_OS_LLM_MODE', 'mock')
+  monkeypatch.setenv('PERSONAL_OS_LLM_MODEL', 'mock-llm-v1')
   monkeypatch.setenv('PERSONAL_OS_WECHAT_PUSH_MODE', 'mock')
   monkeypatch.setenv('PERSONAL_OS_WECHAT_TO_USER', 'test-openid')
   monkeypatch.setenv('PERSONAL_OS_WECHAT_TEMPLATE_ID', 'test-template')

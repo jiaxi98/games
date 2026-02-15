@@ -8,12 +8,20 @@ from sqlmodel import Session
 
 from app.core.config import get_settings
 from app.db.session import get_session
-from app.services.llm import LLMService, get_default_llm_service
+from app.services.llm import LLMService, MockLLMService, OpenAICompatibleLLMService
 from app.services.wechat import MockWeChatClient, RealWeChatClient, WeChatClient
 
 
 def get_llm_service() -> LLMService:
-  return get_default_llm_service()
+  settings = get_settings()
+  if settings.llm_mode == 'openai_compatible':
+    return OpenAICompatibleLLMService(
+      api_base=settings.llm_api_base,
+      api_key=settings.llm_api_key,
+      model=settings.llm_model,
+      timeout_seconds=settings.llm_timeout_seconds,
+    )
+  return MockLLMService()
 
 
 def get_wechat_client() -> WeChatClient:

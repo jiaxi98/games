@@ -39,7 +39,77 @@
 - v0.2 状态：已按批准计划完成实现并通过本地测试（15/15）
 - v0.3 状态：已按批准计划完成实现并通过本地测试（19/19）
 - v0.4 状态：已按批准计划完成实现并通过本地测试（23/23）
-- 下一步：进入 v0.5 计划评审（双时段自动触发与失败重试）
+- v0.5 状态：已按批准计划完成实现并通过本地测试（27/27）
+- 下一步：进入 v0.6 计划评审（双时段自动触发与失败重试）
+
+## 功能计划 v0.5：真实 LLM 接入（已实施）
+### 1）问题与目标
+- 问题：当前晨晚生成仅使用 `mock-llm-v1`，无法接入真实模型进行个性化生成。
+- 目标：引入可配置的真实 LLM 通道，同时保持默认 mock 稳定运行。
+
+### 2）范围（包含）
+- 配置层：
+  - 新增 `PERSONAL_OS_LLM_MODE`（`mock` / `openai_compatible`）
+  - 新增 `PERSONAL_OS_LLM_API_BASE`、`PERSONAL_OS_LLM_API_KEY`、`PERSONAL_OS_LLM_MODEL`、`PERSONAL_OS_LLM_TIMEOUT_SECONDS`
+- 服务层：
+  - 新增 `OpenAICompatibleLLMService`，调用 `/chat/completions`
+  - 实现 JSON 提取与结构化回填（字段缺失时最小 fallback）
+- 依赖注入层：
+  - `get_llm_service()` 根据配置切换 mock/real
+- 测试层：
+  - 增加 LLM 模式切换测试
+  - 增加真实服务响应解析测试（含 markdown json）
+
+### 3）非目标（不包含）
+- 不绑定单一供应商 SDK（保持 OpenAI 兼容 HTTP 协议）。
+- 不实现流式输出与多轮会话记忆。
+- 不改动既有 API 契约（jobs/rituals 对外字段保持不变）。
+
+### 4）方案与取舍
+- 采用“OpenAI 兼容协议 + 自定义 httpx 客户端”：
+  - 优点：供应商可替换、依赖轻量。
+  - 代价：需要自行处理响应解析与容错。
+- 保留 mock 为默认模式：
+  - 避免本地开发被 API Key、配额和网络条件阻塞。
+
+### 5）任务拆解
+1. 扩展 settings 与 `.env.example`。
+2. 实现 `OpenAICompatibleLLMService`。
+3. 在 `get_llm_service()` 注入切换。
+4. 增加 LLM 模式与解析测试。
+5. 更新 README、`project.md`、`PROGRESS.md`。
+
+### 6）风险与应对
+- 风险：模型输出非 JSON 导致解析失败。
+  - 应对：实现 code-fence 清理与 JSON 提取逻辑。
+- 风险：真实模型偶发字段缺失导致落库失败。
+  - 应对：对列表字段补最小 fallback，保证结构完整。
+
+### 7）测试策略
+- 新增 `tests/test_llm_modes.py`：
+  - 模式切换（mock/openai_compatible）
+  - 真实通道计划生成解析
+  - 真实通道复盘生成解析（markdown json）
+
+### 8）完成标准（Exit Criteria）
+- 配置切到 `openai_compatible` 后，晨晚接口可通过真实模型生成。
+- 不配置真实参数时，默认 mock 行为不变。
+- 全量后端测试通过。
+
+### 9）审批闸门
+- 当前状态：`APPROVED_AND_COMPLETED`
+- 执行口令：你已回复“是的，我们来接入这个吧”，随后开始实现并完成。
+
+## v0.5 实施结果
+- 配置更新：`personal-os/backend/app/core/config.py`
+- 注入切换：`personal-os/backend/app/api/deps.py`
+- 真实服务：`personal-os/backend/app/services/llm.py`
+- 配置样例：`personal-os/backend/.env.example`
+- 测试新增：`personal-os/backend/tests/test_llm_modes.py`
+- 文档更新：`personal-os/backend/README.md`
+- 测试结果：
+  - 命令：`cd personal-os/backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest`
+  - 结果：`27 passed`
 
 ## 功能计划 v0.4：双时段交互闭环（已实施）
 ### 1）问题与目标

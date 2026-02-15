@@ -70,3 +70,9 @@
 - 解决：新增 `rituals` 接口层（morning/evening/today），并在后处理阶段注入用户输入，同时复用既有 `daily_plan/daily_review` 存储。
 - 预防：后续新增交互模式优先先定义“场景语义接口”，避免把所有能力都堆到通用 `jobs` 路径里。
 - Commit：`8bfc6db6bd48645f1f76fe00bb91c63ea46f8eab`
+
+### [2026-02-15] 真实 LLM 输出不稳定带来结构化解析风险
+- 问题：接入真实 LLM 后，返回内容可能带 markdown 包裹或字段缺失，若直接落库会导致接口不稳定。
+- 解决：新增 `OpenAICompatibleLLMService` 的 JSON 提取逻辑（支持 code fence 清理与对象截取），并对关键列表字段补最小 fallback，保证 `DailyPlanPayload` / `DailyReviewPayload` 可构建。
+- 预防：后续接入新模型时先跑 `tests/test_llm_modes.py`，确认模式切换与响应解析都通过，再切生产配置。
+- Commit：`待提交`
