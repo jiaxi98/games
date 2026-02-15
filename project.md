@@ -1,113 +1,112 @@
-# Personal OS Project Board
+# Personal OS 项目看板
 
-This is the only file you need to read for project management.
+这是项目管理唯一需要查看的文件。
 
-## North Star
-- Build a personal daily information OS that captures, plans, and reviews with AI.
-- Maximize leverage: less micromanagement, more clear context and outcomes.
+## 北极星目标
+- 构建一个个人日常信息 OS：自动采集、AI 规划、日终复盘。
+- 最大化杠杆：减少微管理，强化上下文与目标清晰度。
 
-## Working Rules
-- Context, not control: define goals, constraints, and success criteria; avoid low-level micromanagement.
-- Plan-first delivery: before implementing any feature, produce a plan and review with you.
-- Implement only after plan approval.
-- Keep high signal communication: what changed, why, and what is next.
+## 工作原则
+- Context, not control：明确目标、约束与验收标准，不做低层次微管理。
+- 计划先行：每个功能开发前必须先给出计划并与你评审。
+- 未获批准不实现：只有计划被明确批准后才开始编码。
+- 高信噪比同步：每次只汇报关键变化、原因和下一步。
 
-## Plan Mode (Mandatory Before Coding)
-For each feature, we follow this flow:
-1. Problem and objective
-2. Scope and non-goals
-3. Design and tradeoffs
-4. Task breakdown
-5. Risks and test strategy
-6. Review with user
-7. Implement after approval
+## Plan Mode（编码前强制）
+每个功能遵循以下流程：
+1. 问题与目标
+2. 范围与非目标
+3. 方案与取舍
+4. 任务拆解
+5. 风险与测试策略
+6. 与你评审
+7. 评审通过后实现
 
-## Current Product Direction (Agreed)
-- Launch stack:
-  1. Browser extension (primary ingestion)
-  2. iOS Shortcuts (mobile ingestion)
-  3. WeChat (push + lightweight input only)
-  4. Web (organize/search/review)
-- Backend: Python (FastAPI)
-- Push channel: WeChat Official Account template messages
-- Data posture: local-first, cloud-migratable later
+## 当前已确认产品方向
+- 首发组合：
+  1. 浏览器扩展（主采集）
+  2. iOS 快捷指令（移动补采）
+  3. 微信（只做推送触达 + 轻输入）
+  4. Web（整理/检索/复盘）
+- 后端技术：Python（FastAPI）
+- 推送渠道：微信公众号模板消息
+- 数据策略：本地优先，后续可迁移上云
 
-## Current Status
-- Worktree path: `/home/aiops/zhaojx/projects/personal-os-worktree`
-- Active branch: `feature/personal-os-bootstrap-v2`
-- Old temporary worktree: removed
-- Next step: review Feature Plan v0.1 below; implement only after explicit approval
+## 当前状态
+- Worktree 路径：`/home/aiops/zhaojx/projects/personal-os-worktree`
+- 当前分支：`feature/personal-os-bootstrap-v2`
+- 下一步：评审下方 `后端 Bootstrap v0.1` 计划，获批后再实现
 
-## Feature Plan v0.1: Backend Bootstrap (Review Required)
-### 1) Problem and Objective
-- Problem: no executable backend yet for ingestion, daily plan/review generation, and WeChat push.
-- Objective: deliver a runnable FastAPI backend skeleton with stable contracts so extension/iOS/Web can integrate immediately.
+## 功能计划 v0.1：后端 Bootstrap（待评审）
+### 1）问题与目标
+- 问题：目前还没有可运行后端，无法承接采集、晨晚生成和微信推送流程。
+- 目标：交付一个可运行的 FastAPI 骨架，并冻结首版接口契约，让扩展/iOS/Web 可并行接入。
 
-### 2) Scope (In)
-- Project skeleton under `personal-os/backend/`.
-- FastAPI app with health check and versioned API router.
-- Minimal data layer with SQLModel + SQLite (local-first baseline).
-- Initial tables:
+### 2）范围（包含）
+- 在 `personal-os/backend/` 下创建后端项目骨架。
+- FastAPI 应用、健康检查、版本化路由。
+- 最小数据层：SQLModel + SQLite（本地优先基线）。
+- 初始数据表：
   - `events`
   - `daily_plan`
   - `daily_review`
   - `push_logs`
-- Core endpoints:
+- 核心接口：
   - `POST /api/v1/ingest/browser`
   - `POST /api/v1/ingest/mobile`
   - `GET /api/v1/today`
   - `POST /api/v1/jobs/generate-plan`
   - `POST /api/v1/jobs/generate-review`
   - `POST /api/v1/push/wechat/daily`
-- Service stubs:
-  - LLM service interface (mock implementation first)
-  - WeChat OA push client interface (mock implementation first)
-- Basic tests for API contracts and persistence.
+- 服务桩：
+  - LLM 服务接口（先用 mock）
+  - 微信公众号推送客户端接口（先用 mock）
+- 提供基础测试：接口契约 + 持久化行为。
 
-### 3) Non-Goals (Out)
-- No full auth system in v0.1 (single-user local token only).
-- No production-grade async queue yet (use synchronous service calls first).
-- No full WeChat production push verification in v0.1 (mock + contract test only).
-- No browser extension/iOS/web UI implementation in this feature.
+### 3）非目标（不包含）
+- 不实现完整鉴权系统（v0.1 仅单用户本地 token）。
+- 不引入生产级异步队列（先同步调用）。
+- 不做完整微信生产推送联调（v0.1 仅 mock + 契约验证）。
+- 不实现浏览器扩展/iOS/Web 前端页面。
 
-### 4) Design and Tradeoffs
-- FastAPI + SQLModel chosen for speed and AI ecosystem compatibility.
-- SQLite first for fast bootstrap and portability; keep repository pattern to migrate to Postgres later.
-- External integrations wrapped by adapter interfaces to avoid lock-in and simplify testing.
+### 4）方案与取舍
+- 选择 FastAPI + SQLModel：开发速度快，AI 生态匹配高。
+- 先用 SQLite：落地快、可移植；通过仓储层隔离，后续迁移 Postgres。
+- 外部集成统一走 adapter：降低耦合，便于测试和替换。
 
-### 5) Task Breakdown
-1. Bootstrap Python project, dependency config, and app entrypoint.
-2. Add config management (`.env`), logging, and settings model.
-3. Implement SQLModel entities and DB session helpers.
-4. Implement API schemas + routes for ingestion/today/jobs/push.
-5. Implement service layer for summary generation and push orchestration.
-6. Add unit tests and API integration tests.
-7. Add run/test instructions to README.
+### 5）任务拆解
+1. 初始化 Python 项目与依赖，完成应用入口。
+2. 加入配置管理（`.env`）、日志与 settings。
+3. 实现 SQLModel 实体和数据库会话管理。
+4. 实现采集/today/jobs/push 的 API schema 与路由。
+5. 实现服务层：摘要生成与推送编排。
+6. 增加单元测试与接口集成测试。
+7. 更新 README：启动、测试、调试说明。
 
-### 6) Risks and Mitigation
-- Risk: schema changes break clients early.
-  - Mitigation: freeze v1 request/response models and test contract snapshots.
-- Risk: WeChat API constraints delay integration.
-  - Mitigation: keep push adapter mockable; validate with dry-run mode first.
-- Risk: LLM output instability.
-  - Mitigation: strict output schema + fallback deterministic templates.
+### 6）风险与应对
+- 风险：早期 schema 频繁变化导致客户端反复改。
+  - 应对：冻结 v1 请求/响应模型，增加契约测试。
+- 风险：微信接口约束影响进度。
+  - 应对：推送 adapter 支持 dry-run，先打通可测链路。
+- 风险：LLM 输出不稳定。
+  - 应对：强约束输出结构 + 确定性 fallback 模板。
 
-### 7) Test Strategy
-- Unit tests for services and validators.
-- API tests for all v0.1 endpoints.
-- DB tests for CRUD and day aggregation logic.
-- Smoke run: `uvicorn` startup + sample ingestion + today aggregation.
+### 7）测试策略
+- 服务层与校验逻辑单元测试。
+- 所有 v0.1 接口 API 测试。
+- 数据库 CRUD 与按日聚合测试。
+- 启动冒烟：`uvicorn` 启动 + 样例采集 + today 聚合验证。
 
-### 8) Exit Criteria
-- All v0.1 endpoints callable locally.
-- Tests pass in CI-style local run.
-- `project.md` updated with implementation summary and next plan.
+### 8）完成标准（Exit Criteria）
+- v0.1 全部接口本地可调用。
+- 本地 CI 风格测试通过。
+- `project.md` 更新实现结果与下一阶段计划。
 
-### 9) Approval Gate
-- Status: `WAITING_FOR_APPROVAL`
-- Implementation starts only after user confirms: `批准计划，开始实现 v0.1`.
+### 9）审批闸门
+- 当前状态：`WAITING_FOR_APPROVAL`
+- 仅当你回复：`批准计划，开始实现 v0.1` 才进入编码。
 
-## Decision Log
-- 2026-02-15: Use Python/FastAPI backend for AI-heavy workflow.
-- 2026-02-15: WeChat used for push and light input, not heavy bot in V1.
-- 2026-02-15: Enforce plan-review-implement workflow.
+## 决策记录
+- 2026-02-15：后端采用 Python/FastAPI，服务 AI 高交互场景。
+- 2026-02-15：V1 微信仅做推送触达和轻输入，不做重型 Bot。
+- 2026-02-15：强制执行“先计划评审，再实现”的交付流程。
