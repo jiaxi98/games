@@ -69,4 +69,4 @@
 - 问题：原有 `jobs/generate-plan` 与 `jobs/generate-review` 偏通用任务，无法直接承载“晨间 must_win、晚间 key_outcome/blocker”这类双时段交互语义。
 - 解决：新增 `rituals` 接口层（morning/evening/today），并在后处理阶段注入用户输入，同时复用既有 `daily_plan/daily_review` 存储。
 - 预防：后续新增交互模式优先先定义“场景语义接口”，避免把所有能力都堆到通用 `jobs` 路径里。
-- Commit：`待提交`
+- Commit：`8bfc6db6bd48645f1f76fe00bb91c63ea46f8eab`
