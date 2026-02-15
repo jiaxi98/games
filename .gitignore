@@ -5,3 +5,10 @@ playwright-report/
 test-results/
 .npm-cache/
 *.log
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+*.db
+*.egg-info/

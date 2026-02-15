@@ -35,9 +35,10 @@
 ## 当前状态
 - Worktree 路径：`/home/aiops/zhaojx/projects/personal-os-worktree`
 - 当前分支：`feature/personal-os-bootstrap-v2`
-- 下一步：评审下方 `后端 Bootstrap v0.1` 计划，获批后再实现
+- v0.1 状态：已按批准计划完成实现并通过本地测试（9/9）
+- 下一步：进入 v0.2 计划评审（真实微信推送联调 + 浏览器扩展接入）
 
-## 功能计划 v0.1：后端 Bootstrap（待评审）
+## 功能计划 v0.1：后端 Bootstrap（已实施）
 ### 1）问题与目标
 - 问题：目前还没有可运行后端，无法承接采集、晨晚生成和微信推送流程。
 - 目标：交付一个可运行的 FastAPI 骨架，并冻结首版接口契约，让扩展/iOS/Web 可并行接入。
@@ -103,8 +104,23 @@
 - `project.md` 更新实现结果与下一阶段计划。
 
 ### 9）审批闸门
-- 当前状态：`WAITING_FOR_APPROVAL`
-- 仅当你回复：`批准计划，开始实现 v0.1` 才进入编码。
+- 当前状态：`APPROVED_AND_COMPLETED`
+- 执行口令：你已回复 `approved`，随后开始实现并完成。
+
+## v0.1 实施结果
+- 已新增目录：`personal-os/backend`
+- 已完成模块：
+  - FastAPI 应用入口、健康检查、版本路由
+  - SQLModel + SQLite 数据层
+  - 6 个核心接口（ingest/today/jobs/push）
+  - Mock LLM 与 Mock 微信推送适配器
+  - API 契约与持久化测试
+- 测试结果：
+  - 命令：`cd personal-os/backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest`
+  - 结果：`9 passed`
+- 产出文档：
+  - `personal-os/backend/README.md`
+  - `.env.example`
 
 ## 决策记录
 - 2026-02-15：后端采用 Python/FastAPI，服务 AI 高交互场景。
