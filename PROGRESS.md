@@ -57,4 +57,4 @@
 - 问题：推送到 GitHub 时连续出现 `Host key verification failed`，并且默认用户主目录解析到不存在的 `/home/sailor/.ssh`，导致无法写入 known_hosts。
 - 解决：显式指定 SSH 参数执行推送：`-i /home/aiops/zhaojx/.ssh/id_rsa` 与 `-o UserKnownHostsFile=/home/aiops/zhaojx/.ssh/known_hosts`，成功完成 `git push -u origin feature/personal-os-bootstrap-v2`。
 - 预防：在该环境中执行 git over ssh 时统一使用 `GIT_SSH_COMMAND` 显式指定私钥与 known_hosts 路径，避免依赖默认 home 解析。
-- Commit：`TBD（本次记录提交后回填）`
+- Commit：`58186eaf925d7255a7a7760205df3241c8085eff`
