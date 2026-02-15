@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 
-def test_generate_plan(client):
+def test_generate_plan(client, ingest_headers):
   client.post(
     '/api/v1/ingest/browser',
+    headers=ingest_headers,
     json={'event_type': 'article', 'content': '测试晨间计划'},
   )
 
@@ -15,9 +16,10 @@ def test_generate_plan(client):
   assert len(payload['plan']['top_goals']) == 3
 
 
-def test_generate_review(client):
+def test_generate_review(client, ingest_headers):
   client.post(
     '/api/v1/ingest/mobile',
+    headers=ingest_headers,
     json={'event_type': 'idea', 'content': '测试晚间复盘'},
   )
 

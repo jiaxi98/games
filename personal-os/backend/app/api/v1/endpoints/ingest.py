@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, status
 
-from app.api.deps import SessionDep
+from app.api.deps import IngestAuthDep, SessionDep
 from app.db.models import Event
 from app.schemas.ingest import EventResponse, IngestRequest
 from app.services.serialization import dump_json, load_json
@@ -42,10 +42,10 @@ def _save_event(session: SessionDep, payload: IngestRequest, source: str) -> Eve
 
 
 @router.post('/ingest/browser', response_model=EventResponse, status_code=status.HTTP_201_CREATED)
-def ingest_browser(payload: IngestRequest, session: SessionDep) -> EventResponse:
+def ingest_browser(payload: IngestRequest, session: SessionDep, _: IngestAuthDep) -> EventResponse:
   return _save_event(session, payload, source='browser')
 
 
 @router.post('/ingest/mobile', response_model=EventResponse, status_code=status.HTTP_201_CREATED)
-def ingest_mobile(payload: IngestRequest, session: SessionDep) -> EventResponse:
+def ingest_mobile(payload: IngestRequest, session: SessionDep, _: IngestAuthDep) -> EventResponse:
   return _save_event(session, payload, source='mobile')

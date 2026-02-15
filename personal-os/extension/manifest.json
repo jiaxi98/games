@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Personal OS Collector",
+  "description": "采集当前页面和选中文本到 Personal OS 后端",
+  "version": "0.1.0",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "contextMenus",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html"
+}

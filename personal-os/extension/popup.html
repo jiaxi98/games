@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Personal OS 采集</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Personal OS</h1>
+      <p id="currentPage" class="muted">加载当前页面信息...</p>
+      <label for="content">采集内容</label>
+      <textarea id="content" rows="6" placeholder="可编辑后再发送"></textarea>
+      <div class="row">
+        <button id="captureButton">采集当前页面</button>
+        <button id="openOptions" class="secondary">设置</button>
+      </div>
+      <p id="status" class="muted"></p>
+    </main>
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

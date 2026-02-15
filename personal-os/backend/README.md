@@ -35,3 +35,17 @@ pytest
 - `POST /api/v1/jobs/generate-plan`
 - `POST /api/v1/jobs/generate-review`
 - `POST /api/v1/push/wechat/daily`
+
+## 采集鉴权
+- `POST /api/v1/ingest/browser`
+- `POST /api/v1/ingest/mobile`
+
+两个采集接口都要求请求头：
+```http
+X-INGEST-TOKEN: <PERSONAL_OS_INGEST_TOKEN>
+```
+
+## 微信推送模式
+- `PERSONAL_OS_WECHAT_PUSH_MODE=mock`：默认 mock，不访问微信 API。
+- `PERSONAL_OS_WECHAT_PUSH_MODE=real`：调用公众号真实模板消息接口。
+- `POST /api/v1/push/wechat/daily` 的 `dry_run=true` 会强制演练，不真实发送。

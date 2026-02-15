@@ -36,9 +36,10 @@
 - Worktree 路径：`/home/aiops/zhaojx/projects/personal-os-worktree`
 - 当前分支：`feature/personal-os-bootstrap-v2`
 - v0.1 状态：已按批准计划完成实现并通过本地测试（9/9）
-- 下一步：评审下方 `v0.2 计划`，批准后进入实现
+- v0.2 状态：已按批准计划完成实现并通过本地测试（15/15）
+- 下一步：进入 v0.3 计划评审（iOS 快捷指令接入 + 微信真实模板字段适配）
 
-## 功能计划 v0.2：真实触达 + 主采集入口（待评审）
+## 功能计划 v0.2：真实触达 + 主采集入口（已实施）
 ### 1）问题与目标
 - 问题：v0.1 虽可跑通闭环，但微信推送仍是 mock，浏览器采集端还未落地，离真实日用还差两段。
 - 目标：打通“真实微信触达 + 浏览器首发采集”，让你可以每天实际使用。
@@ -106,8 +107,26 @@
 - `project.md` 与 `PROGRESS.md` 完整更新，测试通过。
 
 ### 9）审批闸门
-- 当前状态：`WAITING_FOR_APPROVAL`
-- 仅当你回复：`批准计划，开始实现 v0.2` 才进入编码。
+- 当前状态：`APPROVED_AND_COMPLETED`
+- 执行口令：你已回复 `approved`，随后开始实现并完成。
+
+## v0.2 实施结果
+- 后端：
+  - 新增采集鉴权：`X-INGEST-TOKEN`
+  - 新增 CORS 配置项：`PERSONAL_OS_CORS_ALLOW_ORIGINS`
+  - 新增微信推送模式：
+    - `mock`
+    - `real`
+    - `dry_run`（请求级）
+  - 新增 `RealWeChatClient`（公众号 `access_token` 获取与模板消息发送）
+- 浏览器扩展（`personal-os/extension`）：
+  - Popup：一键采集当前页面
+  - Context Menu：采集选中文本
+  - Options：后端地址 / token / 自动采集开关
+  - 自动采集：可开关的页面元数据上报
+- 测试结果：
+  - 命令：`cd personal-os/backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest`
+  - 结果：`15 passed`
 
 ## 功能计划 v0.1：后端 Bootstrap（已实施）
 ### 1）问题与目标

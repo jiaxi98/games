@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Personal OS 扩展设置</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container options">
+      <h1>Personal OS 扩展设置</h1>
+      <label for="backendBaseUrl">后端地址</label>
+      <input id="backendBaseUrl" type="text" placeholder="http://127.0.0.1:8000" />
+
+      <label for="ingestToken">采集 Token</label>
+      <input id="ingestToken" type="password" placeholder="dev-ingest-token" />
+
+      <label class="checkbox">
+        <input id="autoCapture" type="checkbox" />
+        自动采集页面元数据（默认关闭）
+      </label>
+
+      <button id="saveButton">保存设置</button>
+      <p id="status" class="muted"></p>
+    </main>
+    <script src="options.js" type="module"></script>
+  </body>
+</html>

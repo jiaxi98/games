@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 
-def test_today_returns_event_stats(client):
+def test_today_returns_event_stats(client, ingest_headers):
   client.post(
     '/api/v1/ingest/browser',
+    headers=ingest_headers,
     json={'event_type': 'article', 'content': '读了一篇 blog'},
   )
   client.post(
     '/api/v1/ingest/mobile',
+    headers=ingest_headers,
     json={'event_type': 'idea', 'content': '记录一个灵感'},
   )
 

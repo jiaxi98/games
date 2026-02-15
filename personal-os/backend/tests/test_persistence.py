@@ -5,9 +5,10 @@ from sqlmodel import select
 from app.db.models import DailyPlan, DailyReview, Event, PushLog
 
 
-def test_persistence_end_to_end(client, db_session):
+def test_persistence_end_to_end(client, db_session, ingest_headers):
   client.post(
     '/api/v1/ingest/browser',
+    headers=ingest_headers,
     json={'event_type': 'article', 'content': '持久化测试事件'},
   )
   client.post('/api/v1/jobs/generate-plan', json={})
