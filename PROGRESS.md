@@ -75,4 +75,4 @@
 - 问题：接入真实 LLM 后，返回内容可能带 markdown 包裹或字段缺失，若直接落库会导致接口不稳定。
 - 解决：新增 `OpenAICompatibleLLMService` 的 JSON 提取逻辑（支持 code fence 清理与对象截取），并对关键列表字段补最小 fallback，保证 `DailyPlanPayload` / `DailyReviewPayload` 可构建。
 - 预防：后续接入新模型时先跑 `tests/test_llm_modes.py`，确认模式切换与响应解析都通过，再切生产配置。
-- Commit：`待提交`
+- Commit：`93ce6623e84b21649cf9a7f62ac613288a9392d0`
