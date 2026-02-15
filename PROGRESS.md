@@ -33,22 +33,22 @@
 - 问题：尝试用单条 `bash heredoc` 批量生成多文件时，`README.md` 中示例片段被 shell 误执行，文档被污染。
 - 解决：放弃该方式，改用 `apply_patch` 分批逐文件写入，确保内容和命令严格隔离。
 - 预防：复杂/长内容优先用 `apply_patch`，避免在同一 shell 脚本里混合大量 heredoc 与命令。
-- Commit：`TBD（本轮实现提交后回填）`
+- Commit：`8d644ce23260a69d0e7dc6acf65251b9ef94b1e3`
 
 ### [2026-02-15] 私有 pip 镜像缺包导致依赖安装失败
 - 问题：默认索引缺少 `fastapi/sqlmodel` 以及构建依赖 `setuptools`，导致 `pip install` 失败。
 - 解决：改用官方索引 `-i https://pypi.org/simple` 安装所需依赖，并保留可复现命令。
 - 预防：后续在安装步骤中显式声明索引源；为 CI 准备可用镜像或锁定依赖缓存。
-- Commit：`TBD（本轮实现提交后回填）`
+- Commit：`8d644ce23260a69d0e7dc6acf65251b9ef94b1e3`
 
 ### [2026-02-15] pytest 被全局插件污染
 - 问题：直接运行 `pytest` 时自动加载全局插件（dvc），因缺少 `colorama` 导致启动失败。
 - 解决：测试命令统一改为 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest`。
 - 预防：在项目测试说明中固定该环境变量，避免受宿主机全局插件影响。
-- Commit：`TBD（本轮实现提交后回填）`
+- Commit：`8d644ce23260a69d0e7dc6acf65251b9ef94b1e3`
 
 ### [2026-02-15] Pydantic 解析 `date | None` 失败
 - 问题：`GenerateDailyRequest` 中字段名也叫 `date`，类型注解写成 `date | None` 导致 Pydantic 解析冲突。
 - 解决：将日期类型别名为 `dt_date`，避免命名遮蔽后通过测试。
 - 预防：当字段名与类型同名时，统一使用类型别名，避免运行期注解求值冲突。
-- Commit：`TBD（本轮实现提交后回填）`
+- Commit：`8d644ce23260a69d0e7dc6acf65251b9ef94b1e3`
