@@ -58,3 +58,9 @@
 - 解决：显式指定 SSH 参数执行推送：`-i /home/aiops/zhaojx/.ssh/id_rsa` 与 `-o UserKnownHostsFile=/home/aiops/zhaojx/.ssh/known_hosts`，成功完成 `git push -u origin feature/personal-os-bootstrap-v2`。
 - 预防：在该环境中执行 git over ssh 时统一使用 `GIT_SSH_COMMAND` 显式指定私钥与 known_hosts 路径，避免依赖默认 home 解析。
 - Commit：`58186eaf925d7255a7a7760205df3241c8085eff`
+
+### [2026-02-15] v0.3 文本清洗首版遗漏行首尾空格
+- 问题：`clean_text` 初版只压缩连续空格，未处理每一行的行首/行尾空白，导致多行文本清洗后出现 `第一行 `、` 第二行` 这种残留。
+- 解决：将清洗流程改为“按行归一化 + 行级 strip + 空行折叠”，并补充测试 `test_ingest_cleans_text_and_event_type` 覆盖该场景。
+- 预防：后续所有文本规范化逻辑都必须有“多行 + 混合空白字符（空格/Tab/空行）”测试样例后再合并。
+- Commit：`待提交`

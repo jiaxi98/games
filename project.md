@@ -37,7 +37,75 @@
 - 当前分支：`feature/personal-os-bootstrap-v2`
 - v0.1 状态：已按批准计划完成实现并通过本地测试（9/9）
 - v0.2 状态：已按批准计划完成实现并通过本地测试（15/15）
-- 下一步：进入 v0.3 计划评审（iOS 快捷指令接入 + 微信真实模板字段适配）
+- v0.3 状态：已按批准计划完成实现并通过本地测试（19/19）
+- 下一步：进入 v0.4 计划评审（Web 最小工作台：Today/Inbox 可视化）
+
+## 功能计划 v0.3：采集质量增强（已实施）
+### 1）问题与目标
+- 问题：浏览器重复点击会产生重复事件；URL 噪音参数过多；来源标签不统一；文本存在空白噪音。
+- 目标：保证采集结果“少噪音、可聚合、可复盘”。
+
+### 2）范围（包含）
+- 后端 ingest 预处理：
+  - URL 归一化（去 fragment、去跟踪参数、排序 query、统一 host/scheme）。
+  - 10 分钟时间窗去重（同来源 + 同页面 URL）。
+  - 来源标签标准化（`wechat/xhs/x/web/mobile`）。
+  - 文本清洗（标题/正文空白归一化、event_type 归一化）。
+- 测试覆盖：
+  - 去重命中与去重失效（超窗口）分支。
+  - URL 与来源标签标准化。
+  - 文本清洗行为。
+
+### 3）非目标（不包含）
+- 不做全文正文抽取（Readability/爬虫级）。
+- 不做历史数据回填清洗。
+- 不做多维语义去重（embedding 近似重复）。
+
+### 4）方案与取舍
+- 去重策略采用“规则优先”而非语义模型：
+  - 同来源 + 归一化 URL + 10 分钟窗口，优先稳定与可解释性。
+- 来源标签写入 `metadata.source_tag`：
+  - 不改变 `source=browser/mobile` 既有契约，避免破坏当前统计。
+
+### 5）任务拆解
+1. 新增 ingest 预处理模块（normalize/clean/infer）。
+2. 接入 ingest 接口写入前流程（预处理 + 去重判断）。
+3. 补充 API 测试覆盖 v0.3 新行为。
+4. 更新 `project.md` 与 `PROGRESS.md`。
+
+### 6）风险与应对
+- 风险：文本清洗过度导致内容失真。
+  - 应对：只做空白标准化，不改写语义文本。
+- 风险：去重误杀不同内容同 URL。
+  - 应对：先限定 10 分钟窗口，后续再加可配置策略。
+
+### 7）测试策略
+- `tests/test_ingest_api.py` 新增 v0.3 场景测试：
+  - 同页 10 分钟内重复采集仅 1 条。
+  - 超过 10 分钟可再次入库。
+  - 微信域名识别为 `source_tag=wechat`。
+  - 文本清洗与 event_type 标准化。
+
+### 8）完成标准（Exit Criteria）
+- 同 URL 在 10 分钟内重复采集不新增事件。
+- `/api/v1/today` 返回稳定，统计无回归。
+- 测试总数提升并全部通过。
+
+### 9）审批闸门
+- 当前状态：`APPROVED_AND_COMPLETED`
+- 执行口令：你已回复“好，开始v0.3吧，从plan开始然后实现”，随后开始实现并完成。
+
+## v0.3 实施结果
+- 新增模块：`personal-os/backend/app/services/ingest_processing.py`
+  - `normalize_url`
+  - `clean_text`
+  - `infer_source_tag`
+  - `find_recent_duplicate`
+- 接入接口：`personal-os/backend/app/api/v1/endpoints/ingest.py`
+  - 写入前执行预处理与去重判断。
+- 测试结果：
+  - 命令：`cd personal-os/backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest`
+  - 结果：`19 passed`
 
 ## 功能计划 v0.2：真实触达 + 主采集入口（已实施）
 ### 1）问题与目标
