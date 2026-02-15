@@ -52,3 +52,9 @@
 - 解决：将日期类型别名为 `dt_date`，避免命名遮蔽后通过测试。
 - 预防：当字段名与类型同名时，统一使用类型别名，避免运行期注解求值冲突。
 - Commit：`8d644ce23260a69d0e7dc6acf65251b9ef94b1e3`
+
+### [2026-02-15] git push 受 SSH 环境影响失败
+- 问题：推送到 GitHub 时连续出现 `Host key verification failed`，并且默认用户主目录解析到不存在的 `/home/sailor/.ssh`，导致无法写入 known_hosts。
+- 解决：显式指定 SSH 参数执行推送：`-i /home/aiops/zhaojx/.ssh/id_rsa` 与 `-o UserKnownHostsFile=/home/aiops/zhaojx/.ssh/known_hosts`，成功完成 `git push -u origin feature/personal-os-bootstrap-v2`。
+- 预防：在该环境中执行 git over ssh 时统一使用 `GIT_SSH_COMMAND` 显式指定私钥与 known_hosts 路径，避免依赖默认 home 解析。
+- Commit：`TBD（本次记录提交后回填）`
