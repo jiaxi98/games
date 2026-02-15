@@ -64,3 +64,9 @@
 - 解决：将清洗流程改为“按行归一化 + 行级 strip + 空行折叠”，并补充测试 `test_ingest_cleans_text_and_event_type` 覆盖该场景。
 - 预防：后续所有文本规范化逻辑都必须有“多行 + 混合空白字符（空格/Tab/空行）”测试样例后再合并。
 - Commit：`32a77efb84ffbaf4cbda7b7f21266da6f6fc648a`
+
+### [2026-02-15] 仅保留 jobs 入口导致“早晚交互”语义不足
+- 问题：原有 `jobs/generate-plan` 与 `jobs/generate-review` 偏通用任务，无法直接承载“晨间 must_win、晚间 key_outcome/blocker”这类双时段交互语义。
+- 解决：新增 `rituals` 接口层（morning/evening/today），并在后处理阶段注入用户输入，同时复用既有 `daily_plan/daily_review` 存储。
+- 预防：后续新增交互模式优先先定义“场景语义接口”，避免把所有能力都堆到通用 `jobs` 路径里。
+- Commit：`待提交`

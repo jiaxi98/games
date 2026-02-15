@@ -38,7 +38,76 @@
 - v0.1 状态：已按批准计划完成实现并通过本地测试（9/9）
 - v0.2 状态：已按批准计划完成实现并通过本地测试（15/15）
 - v0.3 状态：已按批准计划完成实现并通过本地测试（19/19）
-- 下一步：进入 v0.4 计划评审（Web 最小工作台：Today/Inbox 可视化）
+- v0.4 状态：已按批准计划完成实现并通过本地测试（23/23）
+- 下一步：进入 v0.5 计划评审（双时段自动触发与失败重试）
+
+## 功能计划 v0.4：双时段交互闭环（已实施）
+### 1）问题与目标
+- 问题：你明确不需要每日事件列表 Web，核心只关心每天早晚两次高价值交互。
+- 目标：将“晨间计划 + 晚间复盘”固化为独立 rituals 接口，最小化交互面。
+
+### 2）范围（包含）
+- 新增接口：
+  - `POST /api/v1/rituals/morning`
+  - `POST /api/v1/rituals/evening`
+  - `GET /api/v1/rituals/today`
+- 晨间输入增强：
+  - 支持 `must_win`，写入计划首要目标并注入总结。
+- 晚间输入增强：
+  - 支持 `key_outcome` 与 `biggest_blocker`，注入复盘结果与未完成项。
+- 数据存储：
+  - 复用 `daily_plan` 与 `daily_review` 两张表，不新增表。
+
+### 3）非目标（不包含）
+- 不做事件日志 Web 界面。
+- 不做公众号 real 推送改造（保持 mock 可用）。
+- 不做多轮聊天会话管理。
+
+### 4）方案与取舍
+- 保留原 `jobs` 接口兼容性，新增 `rituals` 语义层：
+  - `jobs` 继续作为通用生成入口。
+  - `rituals` 专注早晚固定场景，减少调用歧义。
+- 输入增强采用“后处理注入”：
+  - 不改动底层 LLM 接口，先保证结构稳定与快速交付。
+
+### 5）任务拆解
+1. 定义 rituals 请求/响应 schema。
+2. 新增 rituals endpoint 并接入路由。
+3. 实现 morning/evening 输入注入逻辑。
+4. 新增 rituals API 测试与回归测试。
+5. 更新 `project.md` 与 `PROGRESS.md`。
+
+### 6）风险与应对
+- 风险：新旧接口语义重叠导致调用方混乱。
+  - 应对：文档明确 `rituals` 为首选交互接口，`jobs` 保留兼容。
+- 风险：用户输入覆盖默认生成内容，导致质量波动。
+  - 应对：输入仅注入关键字段，不替换整段结构。
+
+### 7）测试策略
+- 新增 `tests/test_rituals_api.py`：
+  - 晨间 `must_win` 注入生效。
+  - 晚间 `key_outcome` 与 `biggest_blocker` 注入生效。
+  - `rituals/today` 在未生成前返回 `None`。
+  - `overwrite=False` 保持已有晨间结果不被覆盖。
+
+### 8）完成标准（Exit Criteria）
+- 晨间/晚间接口可用，支持补充输入。
+- `rituals/today` 返回当天双时段结果。
+- 所有后端测试通过。
+
+### 9）审批闸门
+- 当前状态：`APPROVED_AND_COMPLETED`
+- 执行口令：你已回复 `approved`，随后开始实现并完成。
+
+## v0.4 实施结果
+- 新增 schema：`personal-os/backend/app/schemas/rituals.py`
+- 新增服务：`personal-os/backend/app/services/rituals.py`
+- 新增路由：`personal-os/backend/app/api/v1/endpoints/rituals.py`
+- 路由注册：`personal-os/backend/app/api/v1/router.py`
+- 新增测试：`personal-os/backend/tests/test_rituals_api.py`
+- 测试结果：
+  - 命令：`cd personal-os/backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest`
+  - 结果：`23 passed`
 
 ## 功能计划 v0.3：采集质量增强（已实施）
 ### 1）问题与目标
