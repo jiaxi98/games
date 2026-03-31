@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "mapKey": "wildlands",
+  "assets": [
+    {
+      "id": "wildlands-observatory",
+      "label": "Frontier Watchtower",
+      "path": "assets/models/landmark-box.glb",
+      "transform": {
+        "position": { "x": -14.6, "y": 4.1, "z": 9.4 },
+        "rotation": { "x": 0, "y": 0.58, "z": 0 },
+        "scale": { "x": 4.2, "y": 8.0, "z": 4.2 }
+      },
+      "materialStrategy": "flat-shaded",
+      "collisionStrategy": "aabb-proxy",
+      "collisionProxy": {
+        "kind": "box",
+        "offset": { "x": 0, "y": 0, "z": 0 },
+        "size": { "x": 5.4, "y": 8.6, "z": 5.4 },
+        "blocking": true
+      },
+      "interactable": true,
+      "interactionMarkers": [
+        {
+          "id": "wildlands-observatory-entry",
+          "label": "Watchtower Entry",
+          "offset": { "x": 3.2, "y": 0, "z": 0.2 },
+          "radius": 2.4
+        }
+      ],
+      "travelAnchors": [
+        {
+          "id": "wildlands-observatory-upper",
+          "label": "Watchtower Lift Gate",
+          "kind": "elevator",
+          "layer": "surface",
+          "targetId": "wildlands-observatory-lower",
+          "offset": { "x": 3.2, "y": 0, "z": 0.2 }
+        },
+        {
+          "id": "wildlands-observatory-lower",
+          "label": "Watchtower Service Tunnel",
+          "kind": "tunnel",
+          "layer": "underground",
+          "targetId": "wildlands-observatory-upper",
+          "offset": { "x": 3.2, "y": -6.2, "z": 0.2 }
+        }
+      ]
+    }
+  ]
+}

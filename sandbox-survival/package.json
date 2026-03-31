@@ -15,7 +15,8 @@
     "test:e2e": "DEBUG=pw:browser playwright test",
     "test:e2e:update": "DEBUG=pw:browser playwright test --update-snapshots",
     "check": "npm run typecheck && npm run test:unit && npm run test:integration && npm run test:e2e",
-    "baseline:collect": "node scripts/collect-baseline.mjs"
+    "baseline:collect": "node scripts/collect-baseline.mjs",
+    "baseline:guard": "node scripts/check-baseline-regression.mjs"
   },
   "dependencies": {
     "three": "^0.181.1"

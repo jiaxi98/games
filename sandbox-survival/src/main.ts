@@ -40,6 +40,12 @@ import { createStructureId, getResourceProfile, type PlacedStructure, type Resou
 import { resolveMapAssetPalette } from './world/map-assets';
 import { DEFAULT_MAP_KEY, getMapPresetByKey, getNextMapPresetKey, resolveMapPreset } from './world/map-presets';
 import {
+  loadImportedAssetsForMap,
+  resolvePositionAgainstImportColliders,
+  type ImportedCollisionProxy,
+  type ImportedLandmarkMarker,
+} from './world/import/asset-loader';
+import {
   sampleRiverCenterZ,
   sampleRiverDistance,
   sampleRiverWidth,
@@ -136,11 +142,20 @@ interface OverlayRiverPoint {
   width: number;
 }
 
+interface OverlayImportedLandmark {
+  x: number;
+  z: number;
+  label: string;
+  source: 'glb' | 'fallback';
+  interactable: boolean;
+}
+
 const mapOverlay = {
   river: [] as OverlayRiverPoint[],
   cityRoads: [] as OverlayRect[],
   cityBlocks: [] as OverlayRect[],
   cityCenter: null as { x: number; z: number } | null,
+  importedLandmarks: [] as OverlayImportedLandmark[],
 };
 
 const travelRegistry = createTravelRegistry();
@@ -175,6 +190,7 @@ root.innerHTML = `
 
     <section class="hud" aria-live="polite">
       <p>Renderer <strong data-testid="renderer-status" id="renderer-status">initializing</strong></p>
+      <p>Imports <strong data-testid="import-status" id="import-status">pending</strong></p>
       <p>Position <strong data-testid="player-position" id="player-position">x:0 y:0 z:0</strong></p>
       <p>Resources Left <strong data-testid="resource-count" id="resource-count">0</strong></p>
       <p>Structures <strong data-testid="structure-count" id="structure-count">0</strong></p>
@@ -196,6 +212,7 @@ root.innerHTML = `
 `;
 
 const rendererStatusEl = requireElement<HTMLElement>('#renderer-status');
+const importStatusEl = requireElement<HTMLElement>('#import-status');
 const positionEl = requireElement<HTMLElement>('#player-position');
 const resourceCountEl = requireElement<HTMLElement>('#resource-count');
 const structureCountEl = requireElement<HTMLElement>('#structure-count');
@@ -255,10 +272,14 @@ scene.add(createCityDistrict(WORLD_SEED, cityCenter));
 clearTravelRegistry(travelRegistry);
 scene.add(createInfrastructurePack(WORLD_SEED, cityCenter));
 scene.add(createLandmarkPack(cityCenter));
+const importedAssetRoot = new THREE.Group();
+importedAssetRoot.name = `imported-assets:${activeMap.key}`;
+scene.add(importedAssetRoot);
 
 const resourceMeshes = new Map<string, THREE.Mesh>();
 const structureMeshes = new Map<string, THREE.Mesh>();
 const raycaster = new THREE.Raycaster();
+let importedCollisionProxies: ImportedCollisionProxy[] = [];
 
 const pressedKeys = new Set<string>();
 const actionQueue: Array<'gather' | 'place' | 'save' | 'load' | 'recover' | 'use' | 'nextMap'> = [];
@@ -269,11 +290,16 @@ let lastFallbackRenderAt = Number.NEGATIVE_INFINITY;
 let statusMessage = 'ready';
 let statusExpiresAt = 0;
 let statusSticky = false;
+let importStatusMessage = 'pending';
 
 function setStatus(message: string, sticky = false): void {
   statusMessage = message;
   statusSticky = sticky;
   statusExpiresAt = performance.now() + 2800;
+}
+
+function setImportStatus(message: string): void {
+  importStatusMessage = message;
 }
 
 function switchToMap(key: string): void {
@@ -289,6 +315,53 @@ function switchToMap(key: string): void {
 
 function switchToNextMap(): void {
   switchToMap(getNextMapPresetKey(activeMap.key) ?? DEFAULT_MAP_KEY);
+}
+
+function syncImportedOverlayMarkers(markers: ImportedLandmarkMarker[]): void {
+  mapOverlay.importedLandmarks = markers.map((marker) => {
+    return {
+      x: marker.position.x,
+      z: marker.position.z,
+      label: marker.label,
+      source: marker.source,
+      interactable: marker.interactable,
+    };
+  });
+}
+
+async function bootImportedAssets(): Promise<void> {
+  setImportStatus('imports: loading');
+
+  const summary = await loadImportedAssetsForMap(activeMap, importedAssetRoot, {
+    onStatus: (message) => {
+      setImportStatus(message);
+    },
+    onIssue: (issue) => {
+      console.warn(`[import] ${issue}`);
+    },
+  });
+
+  importedCollisionProxies = summary.collisionProxies;
+  syncImportedOverlayMarkers(summary.landmarkMarkers);
+
+  let importedTravelNodeCount = 0;
+  for (const node of summary.travelNodes) {
+    if (travelRegistry.byId.has(node.id)) {
+      continue;
+    }
+    registerTravelNode(travelRegistry, node);
+    scene.add(createTravelBeacon(node));
+    importedTravelNodeCount += 1;
+  }
+
+  if (summary.issues.length > 0) {
+    setImportStatus(
+      `imports: loaded ${summary.loaded}/${summary.requested} (${summary.issues.length} warnings, ${importedTravelNodeCount} anchors)`,
+    );
+    return;
+  }
+
+  setImportStatus(`imports: loaded ${summary.loaded}/${summary.requested} (${importedTravelNodeCount} anchors)`);
 }
 
 function createRendererWithFallback(surface: HTMLCanvasElement): THREE.WebGLRenderer | null {
@@ -1455,6 +1528,24 @@ function renderFallbackScene(): void {
     }
   }
 
+  for (const landmark of mapOverlay.importedLandmarks) {
+    const point = toFallbackPoint(landmark.x, landmark.z, width, height);
+    context.beginPath();
+    context.fillStyle =
+      landmark.source === 'glb'
+        ? landmark.interactable
+          ? 'rgba(233, 196, 112, 0.9)'
+          : 'rgba(200, 200, 180, 0.82)'
+        : 'rgba(176, 148, 124, 0.82)';
+    context.arc(point.x, point.y, landmark.interactable ? 5.5 : 4.3, 0, Math.PI * 2);
+    context.fill();
+    context.beginPath();
+    context.strokeStyle = 'rgba(253, 245, 216, 0.62)';
+    context.lineWidth = 1;
+    context.arc(point.x, point.y, landmark.interactable ? 7.6 : 6.2, 0, Math.PI * 2);
+    context.stroke();
+  }
+
   const playerPoint = toFallbackPoint(player.position.x, player.position.z, width, height);
   const headingX = -Math.sin(player.yaw);
   const headingY = -Math.cos(player.yaw);
@@ -1497,7 +1588,11 @@ function renderFallbackScene(): void {
   context.fillText(`WebGL unavailable: tactical fallback (${activeMap.key}) with transport hubs.`, 24, 35);
   context.fillStyle = '#d8e2cc';
   context.font = `${Math.round(Math.max(11, width * 0.01))}px "Trebuchet MS", sans-serif`;
-  context.fillText(`seed ${WORLD_SEED} | resources ${world.resourceNodes.length - harvestedResourceIds.size} | press F near bright nodes`, 24, 54);
+  context.fillText(
+    `seed ${WORLD_SEED} | resources ${world.resourceNodes.length - harvestedResourceIds.size} | imports ${importStatusMessage}`,
+    24,
+    54,
+  );
 }
 
 function removeMesh(mesh: THREE.Mesh): void {
@@ -1976,6 +2071,7 @@ function updateHud(now: number): void {
   inventoryStoneEl.textContent = String(inventory.items.stone);
   selectedSlotEl.textContent = `${inventory.selected} (${getSelectedCount(inventory)})`;
   interactionStatusEl.textContent = statusMessage;
+  importStatusEl.textContent = importStatusMessage;
 }
 
 function runActionQueue(downed: boolean): void {
@@ -2109,6 +2205,7 @@ rebuildStructureMeshes();
 syncCameraPose();
 
 rendererStatusEl.textContent = renderer ? 'ready (webgl1)' : 'ready (fallback)';
+void bootImportedAssets();
 
 loadCurrentGame(false, true);
 
@@ -2119,14 +2216,21 @@ if (import.meta.env.DEV) {
       setStatus('debug survival updated');
     },
     setPlayerPosition(next) {
+      const previousPosition = { ...player.position };
       const surfaceY = terrainHeightAt(next.x ?? player.position.x, next.z ?? player.position.z) + PLAYER_EYE_HEIGHT;
+      const nextPosition = {
+        x: next.x ?? player.position.x,
+        y: next.y ?? surfaceY,
+        z: next.z ?? player.position.z,
+      };
+      const resolvedPosition = resolvePositionAgainstImportColliders(
+        previousPosition,
+        nextPosition,
+        importedCollisionProxies,
+      );
       player = {
         ...player,
-        position: {
-          x: next.x ?? player.position.x,
-          y: next.y ?? surfaceY,
-          z: next.z ?? player.position.z,
-        },
+        position: resolvedPosition,
       };
       inferPlayerLayerFromHeight(player.position);
       setStatus('debug player moved');
@@ -2192,6 +2296,7 @@ const loop = (now: number): void => {
 
   lookDeltaX = 0;
   lookDeltaY = 0;
+  const previousPosition = { ...player.position };
 
   if (!downed) {
     const movement = calculateMovementInput();
@@ -2200,12 +2305,14 @@ const loop = (now: number): void => {
 
   const surfaceY = terrainHeightAt(player.position.x, player.position.z) + PLAYER_EYE_HEIGHT;
   const targetY = playerLayer === 'underground' && forcedPlayerY !== null ? forcedPlayerY : surfaceY;
+  const withHeight = {
+    ...player.position,
+    y: targetY,
+  };
+  const resolvedPosition = resolvePositionAgainstImportColliders(previousPosition, withHeight, importedCollisionProxies);
   player = {
     ...player,
-    position: {
-      ...player.position,
-      y: targetY,
-    },
+    position: resolvedPosition,
   };
 
   runActionQueue(downed);

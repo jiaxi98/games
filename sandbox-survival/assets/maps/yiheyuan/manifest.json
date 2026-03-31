@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "mapKey": "yiheyuan",
+  "assets": [
+    {
+      "id": "yiheyuan-lakeside-pavilion",
+      "label": "Lakeside Pavilion Cluster",
+      "path": "assets/models/landmark-box.glb",
+      "transform": {
+        "position": { "x": 10.8, "y": 2.8, "z": 7.6 },
+        "rotation": { "x": 0, "y": 0.35, "z": 0 },
+        "scale": { "x": 7.0, "y": 4.2, "z": 5.8 }
+      },
+      "materialStrategy": "source",
+      "collisionStrategy": "aabb-proxy",
+      "collisionProxy": {
+        "kind": "box",
+        "offset": { "x": 0, "y": 0, "z": 0 },
+        "size": { "x": 7.4, "y": 4.8, "z": 6.2 },
+        "blocking": true
+      },
+      "interactable": true,
+      "interactionMarkers": [
+        {
+          "id": "yiheyuan-lakeside-entry",
+          "label": "Pavilion Entry",
+          "offset": { "x": -2.8, "y": 0, "z": 2.2 },
+          "radius": 2.6
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "mapKey": "tiananmen",
+  "assets": [
+    {
+      "id": "tiananmen-ceremonial-gate",
+      "label": "Littlest Tokyo Landmark",
+      "path": "assets/models/littlest-tokyo.glb",
+      "transform": {
+        "position": { "x": 13.4, "y": 2.2, "z": -5.2 },
+        "rotation": { "x": 0, "y": 0.0, "z": 0 },
+        "scale": { "x": 0.0085, "y": 0.0085, "z": 0.0085 }
+      },
+      "materialStrategy": "source",
+      "collisionStrategy": "aabb-proxy",
+      "collisionProxy": {
+        "kind": "box",
+        "offset": { "x": 0, "y": 0.8, "z": 0 },
+        "size": { "x": 11.6, "y": 5.2, "z": 11.6 },
+        "blocking": true
+      },
+      "interactable": true,
+      "interactionMarkers": [
+        {
+          "id": "tiananmen-ceremonial-axis",
+          "label": "Ceremonial Axis Node",
+          "offset": { "x": 0, "y": 0, "z": 4.4 },
+          "radius": 3.2
+        }
+      ]
+    }
+  ]
+}

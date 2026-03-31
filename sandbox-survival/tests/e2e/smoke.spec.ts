@@ -6,6 +6,9 @@ test('completes gather/place/save/load gameplay loop', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Sandbox Survival Prototype' })).toBeVisible();
   await expect(page.locator('#viewport canvas')).toBeVisible();
   await expect(page.getByTestId('renderer-status')).toContainText('ready');
+  await expect
+    .poll(async () => page.getByTestId('import-status').innerText(), { timeout: 15000 })
+    .toContain('loaded');
 
   await page.keyboard.down('ArrowUp');
   await page.waitForTimeout(260);

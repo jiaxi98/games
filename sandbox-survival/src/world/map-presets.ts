@@ -4,6 +4,7 @@ export interface MapPreset {
   description: string;
   seed: number;
   cityRadius: number;
+  importManifestPath?: string;
 }
 
 export interface MapPresetStorage {
@@ -21,6 +22,7 @@ export const MAP_PRESETS: MapPreset[] = [
     description: 'River canyon wilderness with a compact industrial city.',
     seed: 20260207,
     cityRadius: 9.5,
+    importManifestPath: 'assets/maps/wildlands/manifest.json',
   },
   {
     key: 'tiananmen',
@@ -28,6 +30,7 @@ export const MAP_PRESETS: MapPreset[] = [
     description: 'Monumental central axis, ceremonial square, and fortified gate silhouette.',
     seed: 20260601,
     cityRadius: 11.2,
+    importManifestPath: 'assets/maps/tiananmen/manifest.json',
   },
   {
     key: 'yiheyuan',
@@ -35,6 +38,7 @@ export const MAP_PRESETS: MapPreset[] = [
     description: 'Lakeside promenade, pavilion cluster, and hillside garden district.',
     seed: 20260618,
     cityRadius: 10.4,
+    importManifestPath: 'assets/maps/yiheyuan/manifest.json',
   },
 ];
 

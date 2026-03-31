@@ -184,7 +184,7 @@ function renderMarkdown({ generatedAt, commit, environment, results }) {
     '',
     '## Scope',
     '',
-    '- Baseline freeze for current playable build before Part 1 architecture split.',
+    '- Baseline freeze for current playable build.',
     '- Metrics include startup time, FPS, draw calls, map switching, F-transport, and save/load.',
     '',
     '## Metrics',

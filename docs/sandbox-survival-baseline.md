@@ -1,21 +1,21 @@
 # Sandbox Survival Baseline Report
 
-- Generated At: 2026-02-09T07:33:30.256Z
-- Commit: `62c41be`
+- Generated At: 2026-02-09T13:39:03.416Z
+- Commit: `57181ca`
 - Environment: firefox headless @ http://127.0.0.1:4173
 
 ## Scope
 
-- Baseline freeze for current playable build before Part 1 architecture split.
+- Baseline freeze for current playable build.
 - Metrics include startup time, FPS, draw calls, map switching, F-transport, and save/load.
 
 ## Metrics
 
 | Map | Startup (ms) | Avg FPS | Min FPS | Max FPS | Renderer | Draw Calls | Triangles | Map Switch | F Transport | Save/Load |
 | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | --- |
-| wildlands | 973 | 60.01 | 58.28 | 62.19 | ready (fallback) | n/a | n/a | PASS | PASS | PASS |
-| tiananmen | 668 | 60.00 | 57.94 | 62.19 | ready (fallback) | n/a | n/a | PASS | PASS | PASS |
-| yiheyuan | 686 | 60.01 | 58.07 | 62.19 | ready (fallback) | n/a | n/a | PASS | PASS | PASS |
+| wildlands | 972 | 60.01 | 58.00 | 62.19 | ready (fallback) | n/a | n/a | PASS | PASS | PASS |
+| tiananmen | 678 | 60.00 | 58.41 | 62.27 | ready (fallback) | n/a | n/a | PASS | PASS | PASS |
+| yiheyuan | 662 | 59.51 | 29.31 | 62.19 | ready (fallback) | n/a | n/a | PASS | PASS | PASS |
 
 ## Notes
 
