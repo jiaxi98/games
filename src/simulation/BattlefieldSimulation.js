@@ -1,4 +1,5 @@
 import { EventDispatcher, Group, Vector3 } from 'three';
+import { AttackCoordinator } from '../ai/AttackCoordinator.js';
 import { SoldierBrain } from '../ai/SoldierBrain.js';
 import { CohesionState } from '../ai/SquadMorale.js';
 import { SoldierRole, createCaptainActor, createSoldierActor } from '../actors/SoldierActor.js';
@@ -14,6 +15,7 @@ export class BattlefieldSimulation extends EventDispatcher {
     midDistance = 90,
     farVisuals = true,
     seed = 1356,
+    maxAttackersPerTarget = 2,
   } = {}) {
     super();
     this.object3d = new Group();
@@ -28,9 +30,17 @@ export class BattlefieldSimulation extends EventDispatcher {
     this.actors = [];
     this.externalActors = [];
     this.spatial = new SpatialHash(7);
+    this.attackCoordinator = new AttackCoordinator({ maxAttackersPerTarget });
     this.crowdVisuals = new Map();
     this.distantFormations = [];
     this._queryResult = [];
+    this._combatantQueryResult = [];
+    this._spatialItems = [];
+    this._crowdByFaction = new Map();
+    this._crowdActorInstances = new WeakMap();
+    this._crowdElapsed = 0;
+    this._crowdDirty = true;
+    this._eventCounts = new Map();
     this._time = 0;
     this._frame = 0;
     this._disposed = false;
@@ -71,10 +81,12 @@ export class BattlefieldSimulation extends EventDispatcher {
       ).setHeading(Math.atan2(forward.x, forward.z));
       actor.brain = new SoldierBrain({
         actor,
-        queryActors: (position, radius) => this.queryActors(position, radius),
+        queryActors: (position, radius, result) => this.queryActors(position, radius, result),
         terrainHeight: this.terrainHeight,
         rng: seededRandom(this.seed + hashString(`${id}:${i}`)),
+        attackCoordinator: this.attackCoordinator,
       });
+      this._attachActorEvents(actor);
       if (actorRole === SoldierRole.CAPTAIN) officer = actor;
       if (actorRole === SoldierRole.STANDARD_BEARER) standardBearer = actor;
       actors.push(actor);
@@ -93,15 +105,7 @@ export class BattlefieldSimulation extends EventDispatcher {
       officer,
       standardBearer,
     });
-    squad.addEventListener('cohesionchange', (event) => {
-      this.dispatchEvent({ ...event, type: 'cohesionchange' });
-      if (event.state === CohesionState.ROUTED) {
-        this._applyRoutMomentum(squad);
-      }
-    });
-    squad.addEventListener('casualty', (event) => {
-      this.dispatchEvent({ type: 'casualty', squad, actor: event.actor });
-    });
+    this._attachSquadEvents(squad);
     this.squads.push(squad);
     this.spatial.rebuild(this.actors);
     return squad;
@@ -113,14 +117,17 @@ export class BattlefieldSimulation extends EventDispatcher {
       if (!actor.brain) {
         actor.brain = new SoldierBrain({
           actor,
-          queryActors: (position, radius) => this.queryActors(position, radius),
+          queryActors: (position, radius, result) => this.queryActors(position, radius, result),
           terrainHeight: this.terrainHeight,
           rng: seededRandom(this.seed + hashString(actor.id)),
+          attackCoordinator: this.attackCoordinator,
         });
       }
+      this._attachActorEvents(actor);
       this.actors.push(actor);
       this.object3d.add(actor.object3d);
     }
+    this._attachSquadEvents(squad);
     this.spatial.rebuild(this.actors);
     return squad;
   }
@@ -149,6 +156,8 @@ export class BattlefieldSimulation extends EventDispatcher {
       state,
       speed,
       instances: [],
+      dirty: true,
+      layoutElapsed: 0,
     };
     for (let i = 0; i < count; i += 1) {
       formation.instances.push({
@@ -160,6 +169,8 @@ export class BattlefieldSimulation extends EventDispatcher {
     }
     this.distantFormations.push(formation);
     this._layoutDistantFormation(formation);
+    formation.dirty = false;
+    this._crowdDirty = true;
     return formation;
   }
 
@@ -168,7 +179,9 @@ export class BattlefieldSimulation extends EventDispatcher {
     if (!formation) return false;
     formation.state = state;
     if (speed !== undefined) formation.speed = speed;
-    formation.instances.forEach((instance) => { instance.state = state; });
+    formation.dirty = true;
+    this._crowdDirty = true;
+    for (const instance of formation.instances) instance.state = state;
     return true;
   }
 
@@ -187,14 +200,18 @@ export class BattlefieldSimulation extends EventDispatcher {
     };
   }
 
-  queryActors(position, radius) {
+  queryActors(position, radius, result = null) {
+    if (result) return this.spatial.query(position, radius, result);
     return this.spatial.query(position, radius, this._queryResult).slice();
   }
 
-  queryCombatants(position, radius) {
-    return this.queryActors(position, radius)
-      .filter((actor) => actor.combatant.alive)
-      .map((actor) => actor.combatant);
+  queryCombatants(position, radius, result = this._combatantQueryResult) {
+    const actors = this.spatial.query(position, radius, this._queryResult);
+    result.length = 0;
+    for (const actor of actors) {
+      if (actor.combatant.alive) result.push(actor.combatant);
+    }
+    return result;
   }
 
   issuePlayerOrder(order, {
@@ -249,7 +266,8 @@ export class BattlefieldSimulation extends EventDispatcher {
         formation.state = CohesionState.FRACTURED;
         formation.speed = Math.min(formation.speed, -0.45);
       }
-      formation.instances.forEach((instance) => { instance.state = formation.state; });
+      formation.dirty = true;
+      for (const instance of formation.instances) instance.state = formation.state;
     }
     this.dispatchEvent({ type: 'reversal', id, factionId, position, advanceTarget });
     return true;
@@ -259,11 +277,16 @@ export class BattlefieldSimulation extends EventDispatcher {
     if (this._disposed || dt <= 0) return;
     this._time += dt;
     this._frame += 1;
-    this.spatial.rebuild(
-      this.actors
-        .concat(this.externalActors)
-        .filter((actor) => actor.combatant.alive),
-    );
+    this._eventCounts.clear();
+    this.attackCoordinator.prune();
+    this._spatialItems.length = 0;
+    for (const actor of this.actors) {
+      if (actor.combatant.alive) this._spatialItems.push(actor);
+    }
+    for (const actor of this.externalActors) {
+      if (actor.combatant.alive) this._spatialItems.push(actor);
+    }
+    this.spatial.rebuild(this._spatialItems);
     const playerPosition =
       this.player?.position ??
       this.player?.object3d?.position ??
@@ -272,7 +295,7 @@ export class BattlefieldSimulation extends EventDispatcher {
 
     this._updateLod(cameraPosition ?? playerPosition);
     this._updateSquadPressure();
-    this._updateDistantFormations(dt);
+    this._updateDistantFormations(dt, cameraPosition ?? playerPosition);
 
     for (const squad of this.squads) {
       const lod = squad.actors.reduce((min, actor) => Math.min(min, actor.lod), 2);
@@ -285,7 +308,12 @@ export class BattlefieldSimulation extends EventDispatcher {
         enemyRoutedNearby: this._enemyRoutedNear(squad),
       });
     }
-    this._updateCrowdVisuals();
+    this._crowdElapsed += dt;
+    if (this._crowdDirty || this._crowdElapsed >= 1 / 12) {
+      this._updateCrowdVisuals();
+      this._crowdElapsed = 0;
+      this._crowdDirty = false;
+    }
   }
 
   getBattleState() {
@@ -327,6 +355,7 @@ export class BattlefieldSimulation extends EventDispatcher {
     this.crowdVisuals.clear();
     this.distantFormations.length = 0;
     this.spatial.clear();
+    this.attackCoordinator.clear();
     this.object3d.removeFromParent();
     this._disposed = true;
   }
@@ -338,6 +367,7 @@ export class BattlefieldSimulation extends EventDispatcher {
     for (const actor of this.actors) {
       const distanceSq = actor.object3d.position.distanceToSquared(cameraPosition);
       const lod = distanceSq < nearSq ? 0 : distanceSq < midSq ? 1 : 2;
+      if (actor.lod !== lod) this._crowdDirty = true;
       actor.setLod(lod);
       actor.object3d.visible = lod < 2;
     }
@@ -362,13 +392,14 @@ export class BattlefieldSimulation extends EventDispatcher {
       squad.enemyPressure = allies + squad.actors.length > 0
         ? Math.max(0, (enemies - allies) / (allies + squad.actors.length))
         : 1;
-      if (enemies > 0) squad.flankPressure = Math.max(squad.flankPressure, flank / enemies);
+      squad.observedFlankPressure = enemies > 0 ? flank / enemies : 0;
     }
   }
 
   _updateCrowdVisuals() {
     if (!this.farVisuals) return;
-    const byFaction = new Map();
+    const byFaction = this._crowdByFaction;
+    byFaction.forEach((instances) => { instances.length = 0; });
     for (const actor of this.actors) {
       if (actor.lod !== 2 || !actor.combatant.alive) continue;
       let instances = byFaction.get(actor.factionId);
@@ -376,11 +407,14 @@ export class BattlefieldSimulation extends EventDispatcher {
         instances = [];
         byFaction.set(actor.factionId, instances);
       }
-      instances.push({
-        position: actor.object3d.position,
-        heading: actor.object3d.rotation.y,
-        state: actor.squad?.morale.state,
-      });
+      let instance = this._crowdActorInstances.get(actor);
+      if (!instance) {
+        instance = { position: actor.object3d.position, heading: 0, state: CohesionState.ORDERED };
+        this._crowdActorInstances.set(actor, instance);
+      }
+      instance.heading = actor.object3d.rotation.y;
+      instance.state = actor.squad?.morale.state;
+      instances.push(instance);
     }
     for (const formation of this.distantFormations) {
       let instances = byFaction.get(formation.factionId);
@@ -393,7 +427,7 @@ export class BattlefieldSimulation extends EventDispatcher {
     byFaction.forEach((instances, factionId) => {
       let visual = this.crowdVisuals.get(factionId);
       if (!visual) {
-        visual = createCrowdVisuals({ factionId, capacity: Math.max(150, this.actors.length) });
+        visual = createCrowdVisuals({ factionId, capacity: Math.max(150, instances.length) });
         this.crowdVisuals.set(factionId, visual);
         this.object3d.add(visual.object3d);
       }
@@ -413,12 +447,23 @@ export class BattlefieldSimulation extends EventDispatcher {
     );
   }
 
-  _updateDistantFormations(dt) {
+  _updateDistantFormations(dt, cameraPosition) {
     for (const formation of this.distantFormations) {
+      formation.layoutElapsed += dt;
       if (formation.speed !== 0) {
         formation.anchor.addScaledVector(formation.forward, formation.speed * dt);
+        formation.dirty = true;
       }
+      const distanceSq = cameraPosition
+        ? formation.anchor.distanceToSquared(cameraPosition)
+        : 0;
+      const interval = distanceSq > this.midDistance * this.midDistance ? 0.2 : 0.08;
+      if (!formation.dirty && formation.layoutElapsed < interval) continue;
+      if (formation.speed !== 0 && formation.layoutElapsed < interval) continue;
       this._layoutDistantFormation(formation);
+      formation.layoutElapsed = 0;
+      formation.dirty = false;
+      this._crowdDirty = true;
     }
   }
 
@@ -458,6 +503,48 @@ export class BattlefieldSimulation extends EventDispatcher {
         }
       }
     }
+  }
+
+  _attachActorEvents(actor) {
+    if (actor.brain?._battlefieldEventsAttached) return;
+    actor.brain._battlefieldEventsAttached = true;
+    actor.brain.combat.addEventListener('attackstart', (event) => {
+      this._dispatchSampled('aiattack', {
+        actor,
+        target: actor.brain.target,
+        attack: event.attack,
+        weapon: actor.brain.combat.weapon.id,
+      }, 6);
+    });
+    actor.brain.combat.addEventListener('impact', (event) => {
+      this._dispatchSampled('aiimpact', {
+        actor,
+        target: event.target?.actor ?? event.target,
+        attack: event.attack,
+        result: event.result,
+      }, 8);
+    });
+  }
+
+  _attachSquadEvents(squad) {
+    squad.addEventListener('cohesionchange', (event) => {
+      this.dispatchEvent({ ...event, type: 'cohesionchange' });
+      if (event.state === CohesionState.ROUTED) this._applyRoutMomentum(squad);
+    });
+    squad.addEventListener('casualty', (event) => {
+      this._dispatchSampled('casualty', { squad, actor: event.actor }, 8);
+    });
+    squad.addEventListener('rout', () => {
+      this._dispatchSampled('rout', { squad }, 4);
+    });
+  }
+
+  _dispatchSampled(type, detail, limit) {
+    const count = this._eventCounts.get(type) ?? 0;
+    if (count >= limit) return false;
+    this._eventCounts.set(type, count + 1);
+    this.dispatchEvent({ type, ...detail });
+    return true;
   }
 }
 

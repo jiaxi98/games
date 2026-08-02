@@ -1,8 +1,12 @@
 import { CAMPAIGN, getMissionObjective, getNextMissionObjective } from './campaign.js';
+import {
+  BattlePhase,
+  createBattlePhaseEvent,
+} from './battlePhases.js';
 
 const DEFAULT_TIMINGS = Object.freeze({
   subtitle: 5.5,
-  announcement: 4.25,
+  announcement: 2.75,
   objective: 4.75,
   barkCooldown: 3,
 });
@@ -57,7 +61,7 @@ export function createNarrativeDirector(options = {}) {
   const completed = new Set();
   let currentObjective = null;
   let missionState = 'idle';
-  let phase = 'quiet';
+  let phase = 'idle';
   let elapsed = 0;
   let barkCooldown = 0;
   let disposed = false;
@@ -153,30 +157,39 @@ export function createNarrativeDirector(options = {}) {
     completed.clear();
     currentObjective = null;
     emit('mission:start', { campaign, mission: campaign.mission });
-    announce(campaign.mission.title, campaign.mission.order, {
-      tone: 'mission',
-      duration: 6,
-    });
-    schedule(startOptions.objectiveDelay ?? 2.8, 'director:set-objective', {
-      objective: startOptions.objective ?? campaign.mission.objectives[0],
-    });
-    schedule(startOptions.barkDelay ?? 5.6, 'subtitle', {
-      speaker: 'Gascon Man-at-Arms',
-      text: 'The standard is down! Get it clear of the press!',
-      duration: timings.subtitle,
-    });
+    if (startOptions.announce !== false) {
+      announce(campaign.mission.title, campaign.mission.order, {
+        tone: 'mission',
+        duration: startOptions.announcementDuration ?? 3.2,
+      });
+    }
+    if (startOptions.setObjective !== false) {
+      schedule(startOptions.objectiveDelay ?? 1.7, 'director:set-objective', {
+        objective: startOptions.objective ?? campaign.mission.objectives[0],
+      });
+    }
+    if (startOptions.bark !== false) {
+      schedule(startOptions.barkDelay ?? 5.6, 'subtitle', {
+        speaker: 'Gascon Man-at-Arms',
+        text: 'The standard is down! Get it clear of the press!',
+        duration: timings.subtitle,
+      });
+    }
   };
 
   const setBattlePhase = (nextPhase, phaseOptions = {}) => {
     if (!nextPhase || nextPhase === phase) return;
-    phase = nextPhase;
-    emit('battle:phase', { phase, ...phaseOptions });
+    const phaseEvent = createBattlePhaseEvent(nextPhase, phaseOptions);
+    phase = phaseEvent.phase;
+    emit('battle:phase', phaseEvent);
+    if (phaseOptions.announce === false) return;
     const copy = {
-      skirmish: ['THE CENTRE COLLAPSES', 'Reach the fallen standard.'],
-      assault: ['COUNTERATTACK', 'Brace the rallied line at the hedgerow.'],
-      desperate: ['THE SPEARS ADVANCE', 'Break their order or turn the mill flank.'],
-      climax: ['THE FORD IS OPEN', 'Their captain holds the bridge approach.'],
-      routed: ['THEIR LINE BREAKS', 'Press the Saint-Orens host back to the ford.'],
+      [BattlePhase.OPENING]: ['THE CENTRE COLLAPSES', 'Reach the fallen standard.'],
+      [BattlePhase.STANDARD]: ['THE STANDARD IS YOURS', 'Carry it to the western hedgerow.'],
+      [BattlePhase.RALLY]: ['THE HEDGE MUST HOLD', 'Rally the survivors beneath the colours.'],
+      [BattlePhase.SPEAR_LINE]: ['THE SPEARS ADVANCE', 'Brace, then drive the retinue into their line.'],
+      [BattlePhase.FORD]: ['THE FORD IS OPEN', 'Their captain holds the bridge approach.'],
+      [BattlePhase.VICTORY]: ['THEIR LINE BREAKS', 'Raise the Ashen Standard above the bridge.'],
     }[phase];
     if (copy) announce(copy[0], phaseOptions.detail ?? copy[1], { tone: phase });
   };
@@ -250,13 +263,38 @@ export function createNarrativeDirector(options = {}) {
         startMission(detail);
         break;
       case 'objective:set':
-        setObjective(detail.objective ?? detail, detail);
+        if (detail.authority === 'mission') {
+          currentObjective = {
+            ...normaliseObjective(detail.objective ?? detail),
+            progress: clamp(detail.objective?.progress ?? detail.progress ?? 0, 0, 1),
+            state: detail.objective?.state ?? 'active',
+          };
+          emit('objective:set', { ...detail, objective: { ...currentObjective } });
+        } else setObjective(detail.objective ?? detail, detail);
         break;
       case 'objective:progress':
-        updateObjective(detail.progress, detail.detail);
+        if (detail.authority === 'mission') {
+          if (currentObjective) {
+            currentObjective.progress = clamp(detail.progress, 0, 1);
+            if (detail.detail) currentObjective.detail = detail.detail;
+          }
+          emit('objective:progress', {
+            ...detail,
+            objective: currentObjective ? { ...currentObjective } : detail.objective,
+          });
+        } else updateObjective(detail.progress, detail.detail);
         break;
       case 'objective:complete':
-        completeObjective(detail.id, detail);
+        if (detail.authority === 'mission') {
+          if (detail.id) completed.add(detail.id);
+          if (currentObjective?.id === detail.id) {
+            currentObjective = { ...currentObjective, progress: 1, state: 'complete' };
+          }
+          emit('objective:complete', {
+            ...detail,
+            objective: detail.objective ?? (currentObjective ? { ...currentObjective } : null),
+          });
+        } else completeObjective(detail.id, detail);
         break;
       case 'battle:phase':
         setBattlePhase(detail.phase, detail);

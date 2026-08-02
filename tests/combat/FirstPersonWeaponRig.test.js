@@ -76,4 +76,15 @@ describe('FirstPersonWeaponRig', () => {
 
     rig.dispose();
   });
+
+  it('supports a bounded local weapon recoil impulse', () => {
+    const rig = createFirstPersonWeaponRig();
+    rig.applyImpulse({ intensity: 0.8, direction: { x: 1 } });
+    rig.update(0.016, { state: WeaponState.IDLE, progress: 0 });
+
+    expect(rig.object3d.position.z).toBeGreaterThan(0);
+    expect(Math.abs(rig.object3d.rotation.z)).toBeGreaterThan(0);
+
+    rig.dispose();
+  });
 });

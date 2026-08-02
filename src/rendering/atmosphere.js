@@ -246,6 +246,9 @@ function createSmokeEmitter({
   height,
   radius,
   seed,
+  opacity = 0.42,
+  sizeRange = [9, 21],
+  maxSize = 34,
 }) {
   const random = createRng(seed);
   const positions = new Float32Array(count * 3);
@@ -270,7 +273,7 @@ function createSmokeEmitter({
     depthWrite: false,
     uniforms: {
       color: { value: new THREE.Color(color) },
-      opacity: { value: 0.34 },
+      opacity: { value: opacity },
     },
     vertexShader: /* glsl */`
       attribute float size;
@@ -301,7 +304,7 @@ function createSmokeEmitter({
   points.name = 'ProceduralBattleSmoke';
   points.position.copy(position);
   points.renderOrder = 4;
-  material.uniforms.opacity.value = 0.34;
+  material.uniforms.opacity.value = opacity;
 
   function respawn(index, initial = false) {
     ages[index] = initial ? randomRange(random, 0, life[index]) : 0;
@@ -310,7 +313,7 @@ function createSmokeEmitter({
     positions[index * 3] = Math.cos(angle) * distance;
     positions[index * 3 + 1] = randomRange(random, 0, height * 0.15);
     positions[index * 3 + 2] = Math.sin(angle) * distance;
-    sizes[index] = randomRange(random, 8, 18);
+    sizes[index] = randomRange(random, sizeRange[0], sizeRange[1]);
   }
   for (let index = 0; index < count; index += 1) respawn(index, true);
 
@@ -329,10 +332,90 @@ function createSmokeEmitter({
         positions[index * 3] += drifts[index].x * delta;
         positions[index * 3 + 1] += drifts[index].y * delta;
         positions[index * 3 + 2] += drifts[index].z * delta;
-        sizes[index] = THREE.MathUtils.lerp(7, 28, normalizedAge) * (0.62 + fade * 0.38);
+        sizes[index] = THREE.MathUtils.lerp(
+          sizeRange[0] * 0.78,
+          maxSize,
+          normalizedAge,
+        ) * (0.62 + fade * 0.38);
       }
       geometry.attributes.position.needsUpdate = true;
       geometry.attributes.size.needsUpdate = true;
+    },
+  };
+}
+
+function createFlameCards({ position, seed, quality }) {
+  const random = createRng(seed);
+  const count = quality === 'low' ? 4 : quality === 'medium' ? 6 : 8;
+  const positions = new Float32Array(count * 3);
+  const phases = new Float32Array(count);
+  const sizes = new Float32Array(count);
+  for (let index = 0; index < count; index += 1) {
+    positions[index * 3] = randomSigned(random, 1.35);
+    positions[index * 3 + 1] = randomRange(random, -0.15, 1.35);
+    positions[index * 3 + 2] = randomSigned(random, 1.2);
+    phases[index] = randomRange(random, 0, Math.PI * 2);
+    sizes[index] = randomRange(random, 20, 36);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('flamePhase', new THREE.BufferAttribute(phases, 1));
+  geometry.setAttribute('flameSize', new THREE.BufferAttribute(sizes, 1));
+  const material = new THREE.ShaderMaterial({
+    name: 'ProceduralFlameCardMaterial',
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      time: { value: 0 },
+      intensity: { value: 1 },
+      colorHot: { value: new THREE.Color(0xffe08a) },
+      colorBody: { value: new THREE.Color(0xff7a20) },
+      colorEdge: { value: new THREE.Color(0xb91d08) },
+    },
+    vertexShader: /* glsl */`
+      attribute float flamePhase;
+      attribute float flameSize;
+      uniform float time;
+      varying float vPulse;
+      void main() {
+        vec3 p = position;
+        p.x += sin(time * 8.0 + flamePhase) * 0.22;
+        p.y += sin(time * 11.0 + flamePhase * 1.7) * 0.18;
+        vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+        vPulse = 0.82 + sin(time * 9.0 + flamePhase) * 0.18;
+        gl_PointSize = flameSize * vPulse * (260.0 / max(1.0, -mvPosition.z));
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `,
+    fragmentShader: /* glsl */`
+      uniform vec3 colorHot;
+      uniform vec3 colorBody;
+      uniform vec3 colorEdge;
+      uniform float intensity;
+      varying float vPulse;
+      void main() {
+        vec2 p = gl_PointCoord - vec2(0.5, 0.58);
+        p.x *= 1.55;
+        float body = 1.0 - smoothstep(0.12, 0.58, length(p));
+        float tip = smoothstep(0.55, -0.5, p.y);
+        float hollow = smoothstep(0.05, 0.34, length(p * vec2(1.0, 1.45)));
+        float alpha = body * tip * mix(0.82, 1.0, hollow) * vPulse * intensity;
+        vec3 color = mix(colorHot, colorBody, smoothstep(0.05, 0.42, length(p)));
+        color = mix(color, colorEdge, smoothstep(0.33, 0.58, length(p)));
+        gl_FragColor = vec4(color, alpha);
+      }
+    `,
+  });
+  const points = new THREE.Points(geometry, material);
+  points.name = 'ProceduralMillFlameCards';
+  points.position.copy(position);
+  points.renderOrder = 6;
+  return {
+    object: points,
+    update(elapsed, intensity) {
+      material.uniforms.time.value = elapsed;
+      material.uniforms.intensity.value = intensity;
     },
   };
 }
@@ -357,30 +440,30 @@ export function createAtmosphere({
   const sky = createSky();
   group.add(sky);
 
-  const hemisphere = new THREE.HemisphereLight(0xc0ced5, 0x4a4031, 2.15);
+  const hemisphere = new THREE.HemisphereLight(0xb8c8cf, 0x392f25, 1.28);
   hemisphere.name = 'SlateHemisphereLight';
   group.add(hemisphere);
 
-  const key = new THREE.DirectionalLight(0xffe2b7, 2.75);
+  const key = new THREE.DirectionalLight(0xffe0ad, 3.35);
   key.name = 'PostStormKeyLight';
-  key.position.set(-125, 165, 78);
-  key.target.position.set(0, 0, -45);
+  key.position.set(-82, 112, 58);
+  key.target.position.set(0, 0, -24);
   key.castShadow = true;
   key.shadow.mapSize.set(
     quality === 'low' ? 1024 : quality === 'medium' ? 1536 : 2048,
     quality === 'low' ? 1024 : quality === 'medium' ? 1536 : 2048,
   );
-  key.shadow.camera.left = -145;
-  key.shadow.camera.right = 145;
-  key.shadow.camera.top = 155;
-  key.shadow.camera.bottom = -155;
-  key.shadow.camera.near = 10;
-  key.shadow.camera.far = 420;
+  key.shadow.camera.left = -66;
+  key.shadow.camera.right = 66;
+  key.shadow.camera.top = 74;
+  key.shadow.camera.bottom = -74;
+  key.shadow.camera.near = 6;
+  key.shadow.camera.far = 250;
   key.shadow.bias = -0.00025;
   key.shadow.normalBias = 0.035;
   group.add(key, key.target);
 
-  const fill = new THREE.DirectionalLight(0x86a4b9, 0.72);
+  const fill = new THREE.DirectionalLight(0x86a4b9, 0.46);
   fill.name = 'WetSkyFill';
   fill.position.set(110, 75, -160);
   group.add(fill);
@@ -390,14 +473,18 @@ export function createAtmosphere({
   group.add(rain.object, mist.object);
 
   const smokeEmitters = [];
+  const flameCards = [];
   fireSockets.forEach((position, index) => {
     const smoke = createSmokeEmitter({
       position,
-      color: index === 0 ? 0x262728 : 0x343230,
+      color: index === 0 ? 0x1a1b1c : 0x292725,
       count: quality === 'low' ? 18 : quality === 'medium' ? 30 : 46,
-      height: 38,
-      radius: 2.4,
+      height: 44,
+      radius: 2.8,
       seed: seed + 7100 + index,
+      opacity: index === 0 ? 0.52 : 0.45,
+      sizeRange: [11, 24],
+      maxSize: 40,
     });
     smokeEmitters.push(smoke);
     group.add(smoke.object);
@@ -410,6 +497,14 @@ export function createAtmosphere({
     group.add(light);
     smoke.light = light;
     smoke.baseLightIntensity = index === 0 ? 7 : 4.5;
+
+    const flame = createFlameCards({
+      position,
+      seed: seed + 7350 + index,
+      quality,
+    });
+    flameCards.push(flame);
+    group.add(flame.object);
   });
 
   const distantSmokePositions = [
@@ -426,14 +521,19 @@ export function createAtmosphere({
       height: 50,
       radius: 4,
       seed: seed + 7600 + index,
+      opacity: 0.25,
+      sizeRange: [8, 17],
+      maxSize: 30,
     });
-    smoke.material.uniforms.opacity.value = 0.2;
     smokeEmitters.push(smoke);
     group.add(smoke.object);
   });
 
   let weatherIntensity = 1;
   let fireIntensity = 1;
+  const keyOffset = new THREE.Vector3(-82, 112, 58);
+  const keyTargetOffset = new THREE.Vector3(0, 0, -24);
+  const trackedCameraPosition = new THREE.Vector3();
   return {
     group,
     setWeatherIntensity(value) {
@@ -450,6 +550,11 @@ export function createAtmosphere({
     update(delta, elapsed, camera) {
       sky.position.copy(camera.position);
       sky.material.uniforms.time.value = elapsed;
+      trackedCameraPosition.copy(camera.position);
+      key.position.copy(trackedCameraPosition).add(keyOffset);
+      key.target.position.copy(trackedCameraPosition).add(keyTargetOffset);
+      key.target.position.y = Math.min(key.target.position.y, trackedCameraPosition.y - 1.5);
+      key.target.updateMatrixWorld();
       rain.update(delta * weatherIntensity, camera);
       mist.update(delta, camera, elapsed);
       smokeEmitters.forEach((emitter, index) => {
@@ -460,6 +565,7 @@ export function createAtmosphere({
           ) * fireIntensity;
         }
       });
+      flameCards.forEach((flame) => flame.update(elapsed, fireIntensity));
     },
     dispose() {
       scene.background = previous.background;

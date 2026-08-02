@@ -56,8 +56,18 @@ kbd {
   transition: opacity 180ms ease;
 }
 
+.hud[hidden] {
+  display: none;
+}
+
 .game--playing .hud {
   opacity: 1;
+}
+
+/* The richer dynamic presentation layer owns the in-game reticle and bars.
+   Keep the bootstrap HUD as a no-JS/fallback surface only. */
+.game--playing .hud {
+  display: none;
 }
 
 .vignette {

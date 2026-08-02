@@ -5,3 +5,4 @@ export {
   createCaptainActor,
   createSoldierActor,
 } from './SoldierActor.js';
+export { getSoldierAssetStats } from './SoldierAssets.js';

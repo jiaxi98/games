@@ -67,8 +67,16 @@ export function install(context) {
 
   const onCohesion = (event) => events.emit('battlefield:cohesion', event);
   const onReversal = (event) => events.emit('battlefield:reversal', event);
+  const onAiAttack = (event) => events.emit('battlefield:ai-attack', event);
+  const onAiImpact = (event) => events.emit('battlefield:ai-impact', event);
+  const onCasualty = (event) => events.emit('battlefield:casualty', event);
+  const onRout = (event) => events.emit('battlefield:rout', event);
   simulation.addEventListener('cohesionchange', onCohesion);
   simulation.addEventListener('reversal', onReversal);
+  simulation.addEventListener('aiattack', onAiAttack);
+  simulation.addEventListener('aiimpact', onAiImpact);
+  simulation.addEventListener('casualty', onCasualty);
+  simulation.addEventListener('rout', onRout);
   events.emit('battlefield:ready', simulation);
 
   const api = Object.freeze({
@@ -96,6 +104,10 @@ export function install(context) {
     dispose() {
       simulation.removeEventListener('cohesionchange', onCohesion);
       simulation.removeEventListener('reversal', onReversal);
+      simulation.removeEventListener('aiattack', onAiAttack);
+      simulation.removeEventListener('aiimpact', onAiImpact);
+      simulation.removeEventListener('casualty', onCasualty);
+      simulation.removeEventListener('rout', onRout);
       simulation.dispose();
       if (app.battlefieldSimulation === simulation) delete app.battlefieldSimulation;
       if (app.battlefield === api) delete app.battlefield;

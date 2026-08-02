@@ -73,4 +73,84 @@ describe('BattlefieldSimulation', () => {
     expect(formation.anchor.z).toBeLessThan(-80);
     simulation.dispose();
   });
+
+  it('resets observed flank pressure when enemies leave the flank', () => {
+    const simulation = createBattlefieldSimulation({ farVisuals: false });
+    const squad = simulation.createSquad({
+      id: 'line',
+      factionId: FactionId.VANGUARD,
+      count: 2,
+      anchor: new Vector3(0, 0, 0),
+      forward: new Vector3(0, 0, 1),
+    });
+    const flanker = simulation.createSquad({
+      id: 'flanker',
+      factionId: FactionId.SAINT_ORENS,
+      count: 2,
+      anchor: new Vector3(8, 0, 0),
+      forward: new Vector3(-1, 0, 0),
+    });
+
+    simulation.update(0.1, new Vector3(0, 2, 2));
+    expect(squad.morale.flankPressure).toBeGreaterThan(0);
+
+    flanker.anchor.set(100, 0, 100);
+    flanker.actors.forEach((actor, index) => actor.setPosition(100 + index, 0, 100));
+    for (let i = 0; i < 20; i += 1) simulation.update(0.1, new Vector3(0, 2, 2));
+
+    expect(squad.observedFlankPressure).toBe(0);
+    expect(squad.morale.flankPressure).toBeLessThan(0.1);
+    simulation.dispose();
+  });
+
+  it('separates overlapping near actors through the shared spatial query', () => {
+    const simulation = createBattlefieldSimulation({ farVisuals: false });
+    const squad = simulation.createSquad({
+      id: 'packed',
+      factionId: FactionId.VANGUARD,
+      count: 2,
+      anchor: new Vector3(),
+    });
+    squad.actors[0].setPosition(0, 0, 0);
+    squad.actors[1].setPosition(0, 0, 0);
+    const before = squad.actors[0].object3d.position.distanceTo(squad.actors[1].object3d.position);
+
+    for (let i = 0; i < 8; i += 1) simulation.update(0.05, new Vector3(0, 2, 1));
+
+    const after = squad.actors[0].object3d.position.distanceTo(squad.actors[1].object3d.position);
+    expect(after).toBeGreaterThan(before + 0.2);
+    simulation.dispose();
+  });
+
+  it('forwards sampled AI attack and impact events through the simulation dispatcher', () => {
+    const simulation = createBattlefieldSimulation({ farVisuals: false });
+    const attackers = simulation.createSquad({
+      id: 'attackers',
+      factionId: FactionId.VANGUARD,
+      count: 1,
+      anchor: new Vector3(0, 0, 0),
+      role: 'man-at-arms',
+    });
+    const defenders = simulation.createSquad({
+      id: 'defenders',
+      factionId: FactionId.SAINT_ORENS,
+      count: 1,
+      anchor: new Vector3(0, 0, 1),
+      role: 'man-at-arms',
+    });
+    const events = [];
+    simulation.addEventListener('aiattack', (event) => events.push(event.type));
+    simulation.addEventListener('aiimpact', (event) => events.push(event.type));
+    attackers.actors[0].brain.target = defenders.actors[0];
+    simulation.attackCoordinator.reserve(attackers.actors[0], defenders.actors[0]);
+    attackers.actors[0].brain.attackDelay = 0;
+
+    for (let i = 0; i < 30 && !events.includes('aiimpact'); i += 1) {
+      simulation.update(0.05, new Vector3(0, 2, 2));
+    }
+
+    expect(events).toContain('aiattack');
+    expect(events).toContain('aiimpact');
+    simulation.dispose();
+  });
 });

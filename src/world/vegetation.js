@@ -8,13 +8,69 @@ import {
 } from './math.js';
 
 function isExcluded(x, z, roadPoints) {
-  if (distanceToPolyline2D(x, z, roadPoints) < 10) return true;
-  if (Math.abs(x) < 64 && z > 196 && z < 245) return true;
-  if (Math.hypot(x - 104, z - 18) < 37) return true;
-  if (Math.hypot(x + 42, z - 34) < 55) return true;
-  if (Math.abs(z + 174) < 16 && Math.abs(x) < 46) return true;
-  if (Math.abs(x) < 83 && z > -145 && z < 185) return true;
+  // Keep trunks out of the actual travel line and landmark footprints, but no
+  // longer sterilize the entire combat valley. Authored edge clusters can now
+  // frame each route cell at useful first-person distances.
+  if (distanceToPolyline2D(x, z, roadPoints) < 8.5) return true;
+  if (Math.abs(x) < 48 && z > 202 && z < 242) return true;
+  if (Math.hypot(x - 104, z - 18) < 30) return true;
+  if (Math.hypot(x + 42, z - 34) < 35) return true;
+  if (Math.abs(z + 174) < 15 && Math.abs(x + 7) < 28) return true;
+  if (Math.abs(x) < 15 && z > -145 && z < 190) return true;
   return false;
+}
+
+function createRouteTreeClusters({
+  trunks,
+  crowns,
+  sampleHeight,
+  dummy,
+  startIndex,
+  maxCount,
+}) {
+  const clusters = [
+    { x: -37, z: 169, count: 3, spread: 5.5, scale: 0.74 },
+    { x: 39, z: 139, count: 3, spread: 5.2, scale: 0.7 },
+    { x: -50, z: 84, count: 4, spread: 6.8, scale: 0.78 },
+    { x: 48, z: 34, count: 3, spread: 5.8, scale: 0.72 },
+    { x: -42, z: -50, count: 3, spread: 5.6, scale: 0.69 },
+    { x: 45, z: -101, count: 4, spread: 6.2, scale: 0.75 },
+    { x: -39, z: -145, count: 3, spread: 5.4, scale: 0.66 },
+    { x: 39, z: -214, count: 3, spread: 5.8, scale: 0.7 },
+  ];
+  let placed = startIndex;
+  clusters.forEach((cluster, clusterIndex) => {
+    for (let index = 0; index < cluster.count && placed < maxCount; index += 1) {
+      const angle = index * 2.27 + clusterIndex * 0.71;
+      const distance = 1.5 + (index % 3) * cluster.spread * 0.36;
+      const x = cluster.x + Math.cos(angle) * distance;
+      const z = cluster.z + Math.sin(angle) * distance;
+      const scale = cluster.scale * (0.88 + (index % 3) * 0.12);
+      const y = sampleHeight(x, z);
+      const rotation = new THREE.Euler(
+        (index % 2 ? 1 : -1) * 0.025,
+        angle * 1.7,
+        (index % 3 - 1) * 0.02,
+      );
+      const treeScale = new THREE.Vector3(
+        scale * (index % 2 ? 0.88 : 1.05),
+        scale * (1.05 + (index % 3) * 0.12),
+        scale,
+      );
+      setInstanceTransform(trunks, placed, {
+        position: new THREE.Vector3(x, y, z),
+        rotation,
+        scale: treeScale,
+      }, dummy);
+      setInstanceTransform(crowns, placed, {
+        position: new THREE.Vector3(x, y, z),
+        rotation,
+        scale: treeScale,
+      }, dummy);
+      placed += 1;
+    }
+  });
+  return placed;
 }
 
 function createTreeMeshes(materials, count, quality) {
@@ -118,6 +174,14 @@ export function createVegetation({
       scale: treeScale,
     }, dummy);
     placed += 1;
+  });
+  placed = createRouteTreeClusters({
+    trunks,
+    crowns,
+    sampleHeight,
+    dummy,
+    startIndex: placed,
+    maxCount: treeCount,
   });
   while (placed < treeCount && attempts < treeCount * 30) {
     attempts += 1;

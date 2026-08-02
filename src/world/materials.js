@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-const SURFACE_SHADER_KEY = 'procedural-world-surface-v2';
+const SURFACE_SHADER_KEY = 'procedural-world-surface-v3';
 
 function applyProceduralSurface(material, {
   variation = 0.06,
@@ -8,6 +8,7 @@ function applyProceduralSurface(material, {
   wetness = 0,
   wetScale = 0.065,
   normalStrength = 0.12,
+  contactDarkening = 0.04,
 } = {}) {
   const options = {
     variation,
@@ -15,16 +16,18 @@ function applyProceduralSurface(material, {
     wetness,
     wetScale,
     normalStrength,
+    contactDarkening,
   };
 
   material.userData.proceduralSurface = options;
-  material.customProgramCacheKey = () => SURFACE_SHADER_KEY;
+  material.customProgramCacheKey = () => `${SURFACE_SHADER_KEY}:${JSON.stringify(options)}`;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.surfaceVariation = { value: variation };
     shader.uniforms.surfaceScale = { value: scale };
     shader.uniforms.surfaceWetness = { value: wetness };
     shader.uniforms.surfaceWetScale = { value: wetScale };
     shader.uniforms.surfaceNormalStrength = { value: normalStrength };
+    shader.uniforms.surfaceContactDarkening = { value: contactDarkening };
 
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -55,6 +58,7 @@ function applyProceduralSurface(material, {
         uniform float surfaceWetness;
         uniform float surfaceWetScale;
         uniform float surfaceNormalStrength;
+        uniform float surfaceContactDarkening;
 
         float worldSurfaceNoise(vec3 p) {
           float broad = sin(dot(p, vec3(0.91, 1.37, 1.17)));
@@ -84,7 +88,9 @@ function applyProceduralSurface(material, {
           0.24,
           1.0
         );
-        diffuseColor.rgb *= 1.0 - wetPatches * surfaceWetness * 0.09;`,
+        diffuseColor.rgb *= 1.0 - wetPatches * surfaceWetness * 0.14;
+        float groundContact = 1.0 - smoothstep(0.0, 1.4, abs(vProceduralWorldPosition.y));
+        diffuseColor.rgb *= 1.0 - groundContact * surfaceContactDarkening;`,
       )
       .replace(
         '#include <normal_fragment_begin>',
@@ -109,10 +115,38 @@ function standard(color, roughness = 0.9, extra = {}, surface = {}) {
 }
 
 export function createWorldMaterials() {
-  const stone = { variation: 0.12, scale: 0.23, wetness: 0.2, wetScale: 0.05, normalStrength: 0.11 };
-  const wood = { variation: 0.11, scale: 0.34, wetness: 0.16, wetScale: 0.07, normalStrength: 0.09 };
-  const cloth = { variation: 0.055, scale: 0.7, wetness: 0.08, wetScale: 0.12, normalStrength: 0.035 };
-  const organic = { variation: 0.12, scale: 0.42, wetness: 0.14, wetScale: 0.08, normalStrength: 0.1 };
+  const stone = {
+    variation: 0.16,
+    scale: 0.36,
+    wetness: 0.28,
+    wetScale: 0.075,
+    normalStrength: 0.15,
+    contactDarkening: 0.065,
+  };
+  const wood = {
+    variation: 0.14,
+    scale: 0.48,
+    wetness: 0.22,
+    wetScale: 0.095,
+    normalStrength: 0.12,
+    contactDarkening: 0.055,
+  };
+  const cloth = {
+    variation: 0.065,
+    scale: 0.85,
+    wetness: 0.1,
+    wetScale: 0.14,
+    normalStrength: 0.045,
+    contactDarkening: 0.035,
+  };
+  const organic = {
+    variation: 0.15,
+    scale: 0.58,
+    wetness: 0.18,
+    wetScale: 0.1,
+    normalStrength: 0.13,
+    contactDarkening: 0.05,
+  };
 
   const materials = {
     limestone: standard(0x918b7b, 0.87, { flatShading: true }, stone),
@@ -126,7 +160,14 @@ export function createWorldMaterials() {
     oldThatch: standard(0x625b3e, 0.98, { flatShading: true }, { ...organic, scale: 0.72, variation: 0.14 }),
     roofTile: standard(0x60443a, 0.86, { flatShading: true }, { ...stone, scale: 0.48, wetness: 0.24 }),
     iron: standard(0x3b4142, 0.42, { metalness: 0.48 }, { variation: 0.05, scale: 0.62, wetness: 0.12, normalStrength: 0.045 }),
-    soil: standard(0x534237, 0.83, {}, { variation: 0.15, scale: 0.18, wetness: 0.3, wetScale: 0.045, normalStrength: 0.13 }),
+    soil: standard(0x4b3b32, 0.78, {}, {
+      variation: 0.2,
+      scale: 0.3,
+      wetness: 0.48,
+      wetScale: 0.07,
+      normalStrength: 0.18,
+      contactDarkening: 0.085,
+    }),
     straw: standard(0xad9858, 0.96, {}, { ...organic, scale: 0.9, wetness: 0.08 }),
     canvas: standard(0xb5a17c, 0.9, { side: THREE.DoubleSide }, cloth),
     canvasDark: standard(0x756b58, 0.94, { side: THREE.DoubleSide }, { ...cloth, variation: 0.07 }),
@@ -141,6 +182,18 @@ export function createWorldMaterials() {
       emissive: 0xff3f0d,
       emissiveIntensity: 3.4,
     }, { variation: 0.08, scale: 0.8, wetness: 0, normalStrength: 0.035 }),
+    standingWater: new THREE.MeshPhysicalMaterial({
+      name: 'StandingWaterMaterial',
+      color: 0x263738,
+      transparent: true,
+      opacity: 0.62,
+      roughness: 0.13,
+      metalness: 0,
+      depthWrite: false,
+      clearcoat: 1,
+      clearcoatRoughness: 0.12,
+      reflectivity: 0.62,
+    }),
   };
 
   return materials;

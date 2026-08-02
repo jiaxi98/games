@@ -45,6 +45,7 @@ export class SquadController extends EventDispatcher {
     this.casualties = 0;
     this.enemyPressure = 0;
     this.flankPressure = 0;
+    this.observedFlankPressure = 0;
     this.playerPresence = 0;
     this._deadIds = new Set();
     this._slot = new Vector3();
@@ -119,7 +120,7 @@ export class SquadController extends EventDispatcher {
     this.morale.update(dt, {
       casualtyRatio,
       localOutnumbered: this.enemyPressure,
-      flankPressure: this.flankPressure,
+      flankPressure: Math.max(this.flankPressure, this.observedFlankPressure),
       missilePressure: context.missilePressure ?? 0,
       officerAlive: Boolean(this.officer?.combatant.alive),
       standardPresent: Boolean(this.standardBearer?.combatant.alive || context.standardPresent),
@@ -128,7 +129,8 @@ export class SquadController extends EventDispatcher {
       advancing: this.order === SquadOrder.ADVANCE,
       enemyRoutedNearby: context.enemyRoutedNearby,
     });
-    this.flankPressure = Math.max(0, this.flankPressure - dt * 0.05);
+    this.flankPressure = Math.max(0, this.flankPressure - dt * 0.32);
+    this.observedFlankPressure = 0;
 
     if (previousState !== CohesionState.ROUTED && this.morale.state === CohesionState.ROUTED) {
       this.order = SquadOrder.RETREAT;

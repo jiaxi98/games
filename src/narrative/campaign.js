@@ -81,13 +81,45 @@ export const CAMPAIGN = Object.freeze({
       eyebrow: 'THE BRIDGE IS SECURE',
       title: 'The Standard Rises',
       body:
-        'The captured colours rise above Saint-Orens Ford. Along the hedgerow, scattered men close ranks and advance through the rain.',
+        'The Ashen Standard rises above Saint-Orens Ford. Along the hedgerow, scattered men close ranks and advance through the rain.',
     }),
     death: Object.freeze({
       eyebrow: 'THE VANGUARD BREAKS',
       title: 'You Fell at Saint-Orens',
       body:
-        'The standard remains in the mud. Without a rallying point, the survivors give ground from the ford.',
+        'Without its man-at-arms, the vanguard loses heart and gives ground from Saint-Orens Ford.',
+    }),
+    failureByStage: Object.freeze({
+      recover: Object.freeze({
+        eyebrow: 'THE STANDARD LIES IN THE MUD',
+        title: 'The Centre Collapses',
+        body:
+          'The fallen colours are swallowed by the press. With no rallying point, the scattered vanguard abandons the ford.',
+      }),
+      rally: Object.freeze({
+        eyebrow: 'THE HEDGEROW BREAKS',
+        title: 'The Rally Fails',
+        body:
+          'The Ashen Standard is recovered, but the survivors cannot close their ranks before the Saint-Orens counterattack.',
+      }),
+      break: Object.freeze({
+        eyebrow: 'THE SPEARS HOLD',
+        title: 'The Assault Is Repulsed',
+        body:
+          'The retinue spends itself against the ordered spear line, and the road to Saint-Orens Ford remains closed.',
+      }),
+      captain: Object.freeze({
+        eyebrow: 'THE FORD REMAINS CONTESTED',
+        title: 'The Captain Holds',
+        body:
+          'The spear line is broken, but the enemy captain rallies the bridge guard and checks the vanguard at the ford.',
+      }),
+      victory: Object.freeze({
+        eyebrow: 'THE BRIDGE IS LOST',
+        title: 'The Colours Do Not Rise',
+        body:
+          'The enemy captain falls, yet the Ashen Standard never reaches the bridge. The surviving host gathers for another attack.',
+      }),
     }),
   }),
 });

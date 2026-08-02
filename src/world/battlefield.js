@@ -350,9 +350,12 @@ export function createBurningMill({
   sampleHeight,
   position = new THREE.Vector3(104, 0, 18),
 }) {
+  const landmarkScale = 1.3;
   const group = new THREE.Group();
   group.name = 'BurningMillFlank';
   group.position.set(position.x, sampleHeight(position.x, position.z), position.z);
+  group.scale.setScalar(landmarkScale);
+  group.userData.landmarkScale = landmarkScale;
 
   const stoneBase = box(13, 5.2, 11, materials.limestoneDark, 'MillStoneBase');
   stoneBase.position.y = 2.6;
@@ -418,11 +421,21 @@ export function createBurningMill({
 
   return {
     group,
-    fireSockets: fireSockets.map((socket) => socket.clone().add(group.position)),
+    fireSockets: fireSockets.map((socket) => (
+      socket.clone().multiplyScalar(landmarkScale).add(group.position)
+    )),
     colliders: [
       new THREE.Box3().setFromCenterAndSize(
-        new THREE.Vector3(position.x, group.position.y + 6, position.z),
-        new THREE.Vector3(15, 12, 13),
+        new THREE.Vector3(
+          position.x,
+          group.position.y + 6 * landmarkScale,
+          position.z,
+        ),
+        new THREE.Vector3(
+          15 * landmarkScale,
+          12 * landmarkScale,
+          13 * landmarkScale,
+        ),
       ),
     ],
   };
@@ -450,10 +463,13 @@ export function createStoneBridgeAndFord({
   sampleHeight,
   position = new THREE.Vector3(-7, 0, -174),
 }) {
+  const landmarkScale = 1.28;
   const group = new THREE.Group();
   group.name = 'SaintOrensBridgeAndFord';
   const baseY = sampleHeight(position.x, position.z);
   group.position.set(position.x, baseY, position.z);
+  group.scale.setScalar(landmarkScale);
+  group.userData.landmarkScale = landmarkScale;
 
   const deck = box(14, 1.1, 31, materials.limestone, 'StoneBridgeDeck');
   deck.position.y = 3.4;
@@ -524,18 +540,508 @@ export function createStoneBridgeAndFord({
 
   return {
     group,
-    bridgeSurfaceHeight: baseY + 3.95,
+    bridgeSurfaceHeight: baseY + 3.95 * landmarkScale,
+    walkableBounds: new THREE.Box2(
+      new THREE.Vector2(position.x - 5.75 * landmarkScale, position.z - 15.5 * landmarkScale),
+      new THREE.Vector2(position.x + 5.75 * landmarkScale, position.z + 15.5 * landmarkScale),
+    ),
     colliders: [
       new THREE.Box3().setFromCenterAndSize(
-        new THREE.Vector3(position.x - 6.6, baseY + 5, position.z),
-        new THREE.Vector3(1.2, 4, 31),
+        new THREE.Vector3(
+          position.x - 6.35 * landmarkScale,
+          baseY + 5 * landmarkScale,
+          position.z,
+        ),
+        new THREE.Vector3(
+          1.15 * landmarkScale,
+          4 * landmarkScale,
+          31 * landmarkScale,
+        ),
       ),
       new THREE.Box3().setFromCenterAndSize(
-        new THREE.Vector3(position.x + 6.6, baseY + 5, position.z),
-        new THREE.Vector3(1.2, 4, 31),
+        new THREE.Vector3(
+          position.x + 6.35 * landmarkScale,
+          baseY + 5 * landmarkScale,
+          position.z,
+        ),
+        new THREE.Vector3(
+          1.15 * landmarkScale,
+          4 * landmarkScale,
+          31 * landmarkScale,
+        ),
       ),
     ],
   };
+}
+
+export const ROUTE_COMPOSITION_CELLS = Object.freeze([
+  Object.freeze({
+    name: 'BaggageGate',
+    z: 224,
+    foregroundSide: -1,
+    conflictSide: 1,
+    objective: 'CollapsedCentre',
+    cart: false,
+  }),
+  Object.freeze({
+    name: 'CollapsedCentre',
+    z: 126,
+    foregroundSide: 1,
+    conflictSide: -1,
+    objective: 'RallyOak',
+    cart: true,
+  }),
+  Object.freeze({
+    name: 'RallyCrossroads',
+    z: 48,
+    foregroundSide: -1,
+    conflictSide: 1,
+    objective: 'BurningMill',
+    cart: false,
+  }),
+  Object.freeze({
+    name: 'SpearLineApproach',
+    z: -48,
+    foregroundSide: 1,
+    conflictSide: -1,
+    objective: 'EnemySpearLine',
+    cart: true,
+  }),
+  Object.freeze({
+    name: 'BrookApproach',
+    z: -126,
+    foregroundSide: -1,
+    conflictSide: 1,
+    objective: 'SaintOrensBridge',
+    cart: false,
+  }),
+  Object.freeze({
+    name: 'SaintOrensCrossing',
+    z: -202,
+    foregroundSide: 1,
+    conflictSide: -1,
+    objective: 'EnemyRise',
+    cart: true,
+  }),
+]);
+
+function createStaticInstances(geometry, material, count, name, {
+  castShadow = false,
+  receiveShadow = true,
+} = {}) {
+  const mesh = new THREE.InstancedMesh(geometry, material, count);
+  mesh.name = name;
+  mesh.castShadow = castShadow;
+  mesh.receiveShadow = receiveShadow;
+  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  return mesh;
+}
+
+/**
+ * Builds six authored composition cells along the playable route. The dense
+ * forms remain outside a generous central lane while low-profile marks can
+ * cross it, so each vista gains foreground, conflict and objective layers
+ * without introducing new collision blockers.
+ */
+export function createRouteCompositionCells({
+  materials,
+  sampleHeight,
+  seed = 94721,
+  quality = 'high',
+}) {
+  const group = new THREE.Group();
+  group.name = 'BattlefieldRouteComposition';
+  const random = createRng(seed + 8400);
+  const dummy = new THREE.Object3D();
+  const highQualityShadows = quality === 'high';
+  const perCellCount = (total, cellIndex) => (
+    Math.floor(total / ROUTE_COMPOSITION_CELLS.length)
+    + (cellIndex < total % ROUTE_COMPOSITION_CELLS.length ? 1 : 0)
+  );
+
+  const hedgeBankCount = ROUTE_COMPOSITION_CELLS.length * 2;
+  const hedgeClumpCount = ROUTE_COMPOSITION_CELLS.length * 7;
+  const fencePostCount = ROUTE_COMPOSITION_CELLS.length * 5;
+  const fenceRailCount = ROUTE_COMPOSITION_CELLS.length * 4;
+  const conflictCount = ROUTE_COMPOSITION_CELLS.length * 4;
+  const woundedCount = ROUTE_COMPOSITION_CELLS.length * 3;
+  const arrowCount = quality === 'low' ? 72 : quality === 'medium' ? 120 : 180;
+  const mudCount = quality === 'low' ? 70 : quality === 'medium' ? 120 : 190;
+  const strawCount = quality === 'low' ? 100 : quality === 'medium' ? 190 : 310;
+  const footprintCount = quality === 'low' ? 54 : quality === 'medium' ? 90 : 138;
+  const rutCount = ROUTE_COMPOSITION_CELLS.length * 6;
+  const puddleRimCount = ROUTE_COMPOSITION_CELLS.length * 3;
+
+  const hedgeBanks = createStaticInstances(
+    new THREE.BoxGeometry(1, 1, 1),
+    materials.soil,
+    hedgeBankCount,
+    'CompositionHedgeBanks',
+    { castShadow: highQualityShadows },
+  );
+  const hedgeClumps = createStaticInstances(
+    new THREE.IcosahedronGeometry(1, 0),
+    materials.leafDry,
+    hedgeClumpCount,
+    'CompositionHedgeClumps',
+    { castShadow: highQualityShadows },
+  );
+  const fencePosts = createStaticInstances(
+    new THREE.CylinderGeometry(0.09, 0.14, 2.2, 5),
+    materials.timber,
+    fencePostCount,
+    'CompositionFencePosts',
+    { castShadow: highQualityShadows },
+  );
+  const fenceRails = createStaticInstances(
+    new THREE.BoxGeometry(1, 0.13, 0.16),
+    materials.timberLight,
+    fenceRailCount,
+    'CompositionFenceRails',
+    { castShadow: highQualityShadows },
+  );
+  const blueConflict = createStaticInstances(
+    new THREE.CapsuleGeometry(0.27, 0.88, 2, 5),
+    materials.blueCloth,
+    conflictCount / 2,
+    'CompositionAngloGasconSilhouettes',
+  );
+  const redConflict = createStaticInstances(
+    new THREE.CapsuleGeometry(0.27, 0.88, 2, 5),
+    materials.redCloth,
+    conflictCount / 2,
+    'CompositionFrenchSilhouettes',
+  );
+  const conflictWeapons = createStaticInstances(
+    new THREE.CylinderGeometry(0.022, 0.032, 3.5, 5),
+    materials.timberLight,
+    conflictCount,
+    'CompositionConflictWeapons',
+  );
+  const blueWounded = createStaticInstances(
+    new THREE.CapsuleGeometry(0.29, 0.76, 2, 6),
+    materials.blueCloth,
+    Math.ceil(woundedCount / 2),
+    'CompositionWoundedAngloGascon',
+    { castShadow: highQualityShadows },
+  );
+  const redWounded = createStaticInstances(
+    new THREE.CapsuleGeometry(0.29, 0.76, 2, 6),
+    materials.redCloth,
+    Math.floor(woundedCount / 2),
+    'CompositionWoundedFrench',
+    { castShadow: highQualityShadows },
+  );
+  const arrows = createStaticInstances(
+    new THREE.CylinderGeometry(0.014, 0.022, 1.12, 4),
+    materials.timberLight,
+    arrowCount,
+    'InstancedBattlefieldArrows',
+  );
+  const mudClods = createStaticInstances(
+    new THREE.DodecahedronGeometry(0.2, 0),
+    materials.soil,
+    mudCount,
+    'InstancedRouteMudClods',
+  );
+  const straw = createStaticInstances(
+    new THREE.ConeGeometry(0.025, 0.7, 3),
+    materials.straw,
+    strawCount,
+    'InstancedRouteStraw',
+  );
+  const footprints = createStaticInstances(
+    new THREE.SphereGeometry(0.28, 7, 4),
+    materials.charcoal,
+    footprintCount,
+    'InstancedRouteFootprints',
+    { receiveShadow: false },
+  );
+  const ruts = createStaticInstances(
+    new THREE.BoxGeometry(0.44, 0.08, 1),
+    materials.soil,
+    rutCount,
+    'InstancedWagonRuts',
+    { receiveShadow: false },
+  );
+  const puddleRimGeometry = new THREE.TorusGeometry(1, 0.065, 5, 18);
+  puddleRimGeometry.rotateX(Math.PI * 0.5);
+  const puddleRims = createStaticInstances(
+    puddleRimGeometry,
+    materials.limestoneDark,
+    puddleRimCount,
+    'InstancedPuddleRims',
+    { receiveShadow: false },
+  );
+
+  let hedgeBankIndex = 0;
+  let hedgeClumpIndex = 0;
+  let fencePostIndex = 0;
+  let fenceRailIndex = 0;
+  let blueConflictIndex = 0;
+  let redConflictIndex = 0;
+  let conflictWeaponIndex = 0;
+  let blueWoundedIndex = 0;
+  let redWoundedIndex = 0;
+  let arrowIndex = 0;
+  let mudIndex = 0;
+  let strawIndex = 0;
+  let footprintIndex = 0;
+  let rutIndex = 0;
+  let puddleRimIndex = 0;
+
+  ROUTE_COMPOSITION_CELLS.forEach((cell, cellIndex) => {
+    const anchor = new THREE.Group();
+    anchor.name = `RouteCompositionCell:${cell.name}`;
+    anchor.position.set(0, sampleHeight(0, cell.z), cell.z);
+    anchor.userData.routeComposition = {
+      index: cellIndex,
+      foreground: true,
+      midgroundConflict: true,
+      backgroundObjective: cell.objective,
+      clearHalfWidth: 8.5,
+    };
+    group.add(anchor);
+
+    const foregroundX = cell.foregroundSide * (17 + (cellIndex % 2) * 3);
+    const oppositeX = -cell.foregroundSide * (24 + (cellIndex % 3) * 2);
+    const foregroundZ = cell.z + 18;
+    const hedgeYaw = cell.foregroundSide * (0.12 + (cellIndex % 2) * 0.05);
+    [
+      [foregroundX, foregroundZ, 11.5, hedgeYaw],
+      [oppositeX, cell.z + 5, 8.5, -hedgeYaw * 0.65],
+    ].forEach(([x, z, length, yaw]) => {
+      setInstanceTransform(hedgeBanks, hedgeBankIndex, {
+        position: new THREE.Vector3(x, sampleHeight(x, z) + 0.28, z),
+        rotation: new THREE.Euler(0, yaw, 0),
+        scale: new THREE.Vector3(length, 0.62, 1.65),
+      }, dummy);
+      hedgeBankIndex += 1;
+      for (let clump = 0; clump < (length > 10 ? 4 : 3); clump += 1) {
+        const offset = (clump - (length > 10 ? 1.5 : 1)) * 2.8;
+        const clumpX = x + Math.cos(yaw) * offset;
+        const clumpZ = z - Math.sin(yaw) * offset;
+        setInstanceTransform(hedgeClumps, hedgeClumpIndex, {
+          position: new THREE.Vector3(
+            clumpX,
+            sampleHeight(clumpX, clumpZ) + 1.25,
+            clumpZ,
+          ),
+          rotation: new THREE.Euler(0, randomRange(random, 0, Math.PI), 0),
+          scale: new THREE.Vector3(
+            randomRange(random, 1.25, 1.8),
+            randomRange(random, 0.78, 1.22),
+            randomRange(random, 0.75, 1.05),
+          ),
+        }, dummy);
+        hedgeClumpIndex += 1;
+      }
+    });
+
+    const fenceX = -cell.foregroundSide * (15 + (cellIndex % 2) * 2);
+    const fenceZ = cell.z + 22;
+    const fenceYaw = -cell.foregroundSide * (0.2 + cellIndex * 0.018);
+    for (let post = 0; post < 5; post += 1) {
+      const offset = (post - 2) * 2.25;
+      const x = fenceX + Math.cos(fenceYaw) * offset;
+      const z = fenceZ - Math.sin(fenceYaw) * offset;
+      setInstanceTransform(fencePosts, fencePostIndex, {
+        position: new THREE.Vector3(x, sampleHeight(x, z) + 1.02, z),
+        rotation: new THREE.Euler(
+          randomSigned(random, 0.05),
+          fenceYaw,
+          randomSigned(random, 0.08),
+        ),
+        scale: new THREE.Vector3(1, randomRange(random, 0.82, 1.12), 1),
+      }, dummy);
+      fencePostIndex += 1;
+      if (post < 4) {
+        const railOffset = offset + 1.125;
+        const railX = fenceX + Math.cos(fenceYaw) * railOffset;
+        const railZ = fenceZ - Math.sin(fenceYaw) * railOffset;
+        setInstanceTransform(fenceRails, fenceRailIndex, {
+          position: new THREE.Vector3(
+            railX,
+            sampleHeight(railX, railZ) + 1.12 + (post % 2) * 0.18,
+            railZ,
+          ),
+          rotation: new THREE.Euler(0, fenceYaw, randomSigned(random, 0.045)),
+          scale: new THREE.Vector3(2.5, 1, 1),
+        }, dummy);
+        fenceRailIndex += 1;
+      }
+    }
+
+    if (cell.cart) {
+      const cartX = cell.foregroundSide * (21 + cellIndex);
+      const cartZ = cell.z + 9;
+      const cart = createCart(materials, cellIndex % 2 === 0);
+      cart.name = `CompositionCart:${cell.name}`;
+      cart.scale.setScalar(0.86);
+      cart.position.set(cartX, sampleHeight(cartX, cartZ) + 0.05, cartZ);
+      cart.rotation.y = cell.foregroundSide * (Math.PI * 0.46 + cellIndex * 0.025);
+      group.add(cart);
+    }
+
+    for (let fighter = 0; fighter < 4; fighter += 1) {
+      const factionSide = fighter % 2 === 0 ? cell.conflictSide : -cell.conflictSide;
+      const x = factionSide * (26 + fighter * 1.8 + (cellIndex % 2) * 3);
+      const z = cell.z - 14 - Math.floor(fighter / 2) * 3.2;
+      const target = (cellIndex + fighter) % 2 === 0 ? blueConflict : redConflict;
+      const targetIndex = target === blueConflict ? blueConflictIndex++ : redConflictIndex++;
+      const facing = factionSide < 0 ? Math.PI * 0.42 : -Math.PI * 0.42;
+      setInstanceTransform(target, targetIndex, {
+        position: new THREE.Vector3(x, sampleHeight(x, z) + 1.15, z),
+        rotation: new THREE.Euler(0, facing + randomSigned(random, 0.22), 0),
+        scale: new THREE.Vector3(1, randomRange(random, 0.9, 1.13), 1),
+      }, dummy);
+      setInstanceTransform(conflictWeapons, conflictWeaponIndex, {
+        position: new THREE.Vector3(x, sampleHeight(x, z) + 2, z),
+        rotation: new THREE.Euler(
+          randomSigned(random, 0.18),
+          facing,
+          factionSide * randomRange(random, 0.38, 0.72),
+        ),
+        scale: new THREE.Vector3(1, randomRange(random, 0.8, 1.15), 1),
+      }, dummy);
+      conflictWeaponIndex += 1;
+    }
+
+    for (let wounded = 0; wounded < 3; wounded += 1) {
+      const side = wounded % 2 ? -cell.foregroundSide : cell.foregroundSide;
+      const x = side * (11.5 + wounded * 4.6 + (cellIndex % 2));
+      const z = cell.z - 1 + wounded * 4.2;
+      const target = (cellIndex + wounded) % 2 === 0 ? blueWounded : redWounded;
+      const targetIndex = target === blueWounded ? blueWoundedIndex++ : redWoundedIndex++;
+      setInstanceTransform(target, targetIndex, {
+        position: new THREE.Vector3(x, sampleHeight(x, z) + 0.26, z),
+        rotation: new THREE.Euler(
+          Math.PI * 0.5 + randomSigned(random, 0.12),
+          randomRange(random, 0, Math.PI * 2),
+          randomSigned(random, 0.12),
+        ),
+        scale: new THREE.Vector3(
+          randomRange(random, 0.9, 1.12),
+          randomRange(random, 0.86, 1.12),
+          randomRange(random, 0.86, 1.08),
+        ),
+      }, dummy);
+    }
+
+    for (let index = 0; index < perCellCount(arrowCount, cellIndex); index += 1) {
+      let x = randomSigned(random, 31);
+      if (Math.abs(x) < 7 && random() > 0.45) x += Math.sign(x || 1) * 8;
+      const z = cell.z + randomSigned(random, 31);
+      setInstanceTransform(arrows, arrowIndex, {
+        position: new THREE.Vector3(x, sampleHeight(x, z) + 0.18, z),
+        rotation: new THREE.Euler(
+          Math.PI * 0.5 + randomSigned(random, 0.48),
+          randomRange(random, 0, Math.PI),
+          randomRange(random, 0, Math.PI),
+        ),
+        scale: new THREE.Vector3(1, randomRange(random, 0.65, 1), 1),
+      }, dummy);
+      arrowIndex += 1;
+    }
+
+    for (let index = 0; index < perCellCount(mudCount, cellIndex); index += 1) {
+      const x = randomSigned(random, 15);
+      const z = cell.z + randomSigned(random, 29);
+      setInstanceTransform(mudClods, mudIndex, {
+        position: new THREE.Vector3(x, sampleHeight(x, z) + 0.1, z),
+        rotation: new THREE.Euler(
+          randomRange(random, 0, Math.PI),
+          randomRange(random, 0, Math.PI),
+          randomRange(random, 0, Math.PI),
+        ),
+        scale: new THREE.Vector3(
+          randomRange(random, 0.55, 1.35),
+          randomRange(random, 0.35, 0.82),
+          randomRange(random, 0.6, 1.45),
+        ),
+      }, dummy);
+      mudIndex += 1;
+    }
+
+    for (let index = 0; index < perCellCount(strawCount, cellIndex); index += 1) {
+      const side = random() > 0.5 ? 1 : -1;
+      const x = side * randomRange(random, 8.5, 34);
+      const z = cell.z + randomSigned(random, 33);
+      setInstanceTransform(straw, strawIndex, {
+        position: new THREE.Vector3(x, sampleHeight(x, z) + 0.08, z),
+        rotation: new THREE.Euler(
+          Math.PI * 0.5 + randomSigned(random, 0.25),
+          randomRange(random, 0, Math.PI),
+          randomRange(random, 0, Math.PI),
+        ),
+        scale: new THREE.Vector3(1, randomRange(random, 0.35, 1.2), 1),
+      }, dummy);
+      strawIndex += 1;
+    }
+
+    for (let index = 0; index < perCellCount(footprintCount, cellIndex); index += 1) {
+      const pair = Math.floor(index / 2);
+      const side = index % 2 ? 1 : -1;
+      const x = side * (1.6 + (pair % 3) * 0.32) + randomSigned(random, 0.18);
+      const z = cell.z + 25 - pair * 3.4 + randomSigned(random, 0.3);
+      setInstanceTransform(footprints, footprintIndex, {
+        position: new THREE.Vector3(x, sampleHeight(x, z) + 0.035, z),
+        rotation: new THREE.Euler(0, randomSigned(random, 0.22), 0),
+        scale: new THREE.Vector3(0.7, 0.055, 1.35),
+      }, dummy);
+      footprintIndex += 1;
+    }
+
+    for (let index = 0; index < 6; index += 1) {
+      const side = index % 2 ? 1 : -1;
+      const x = side * (3.6 + Math.floor(index / 2) * 0.5);
+      const z = cell.z + 27 - Math.floor(index / 2) * 11;
+      setInstanceTransform(ruts, rutIndex, {
+        position: new THREE.Vector3(x, sampleHeight(x, z) + 0.035, z),
+        rotation: new THREE.Euler(0, randomSigned(random, 0.04), 0),
+        scale: new THREE.Vector3(1, 1, 8.5),
+      }, dummy);
+      rutIndex += 1;
+    }
+
+    for (let index = 0; index < 3; index += 1) {
+      const side = index % 2 ? 1 : -1;
+      const x = side * (4.8 + index * 1.4);
+      const z = cell.z + 12 - index * 10.5;
+      setInstanceTransform(puddleRims, puddleRimIndex, {
+        position: new THREE.Vector3(x, sampleHeight(x, z) + 0.045, z),
+        rotation: new THREE.Euler(0, randomRange(random, 0, Math.PI), 0),
+        scale: new THREE.Vector3(
+          1.25 + (index % 2) * 0.6,
+          1,
+          0.48 + index * 0.14,
+        ),
+      }, dummy);
+      puddleRimIndex += 1;
+    }
+  });
+
+  [
+    hedgeBanks,
+    hedgeClumps,
+    fencePosts,
+    fenceRails,
+    blueConflict,
+    redConflict,
+    conflictWeapons,
+    blueWounded,
+    redWounded,
+    arrows,
+    mudClods,
+    straw,
+    footprints,
+    ruts,
+    puddleRims,
+  ].forEach((mesh) => {
+    group.add(mesh);
+  });
+
+  return group;
 }
 
 export function createFieldDressing({
@@ -644,9 +1150,9 @@ export function createFieldDressing({
     setInstanceTransform(target, targetIndex, {
       position: new THREE.Vector3(x, y + 0.28, z),
       rotation: new THREE.Euler(
-        randomSigned(random, 0.16),
+        Math.PI * 0.5 + randomSigned(random, 0.16),
         randomRange(random, 0, Math.PI * 2),
-        Math.PI * 0.5 + randomSigned(random, 0.15),
+        randomSigned(random, 0.15),
       ),
       scale: new THREE.Vector3(
         randomRange(random, 0.86, 1.12),
@@ -710,6 +1216,7 @@ export function createStandard({
   cloth.name = 'AnimatedBannerCloth';
   cloth.position.set(0, height - 0.45, 0);
   cloth.castShadow = true;
+  cloth.geometry.attributes.normal.setUsage(THREE.StaticDrawUsage);
   cloth.userData.bannerPhase = position.x * 0.17 + position.z * 0.07;
   group.add(cloth);
 

@@ -9,6 +9,7 @@ const _right = new Vector3();
 const _displacement = new Vector3();
 const _targetHorizontal = new Vector3();
 const _cameraOffset = new Vector3();
+const _impulseDirection = new Vector3();
 
 const DEFAULT_CONFIG = Object.freeze({
   radius: 0.36,
@@ -52,6 +53,13 @@ export class FirstPersonController {
     this.currentHeight = this.config.standingHeight;
     this.bobTime = 0;
     this.bobWeight = 0;
+    this.combatPauseRemaining = 0;
+    this.viewImpulse = {
+      pitch: 0,
+      yaw: 0,
+      roll: 0,
+      kick: 0,
+    };
     this.enabled = true;
     this.#syncCamera(0, 1);
   }
@@ -60,12 +68,20 @@ export class FirstPersonController {
     if (!this.enabled || !context.state.isPlaying) return;
 
     const look = this.input.consumeLookDelta();
-    this.yaw -= look.x * this.config.lookSensitivity;
-    this.pitch = MathUtils.clamp(
-      this.pitch - look.y * this.config.lookSensitivity,
-      -this.config.maxPitch,
-      this.config.maxPitch,
-    );
+    const locallyPaused = this.combatPauseRemaining > 0;
+    this.combatPauseRemaining = Math.max(0, this.combatPauseRemaining - delta);
+    if (!locallyPaused) {
+      this.yaw -= look.x * this.config.lookSensitivity;
+      this.pitch = MathUtils.clamp(
+        this.pitch - look.y * this.config.lookSensitivity,
+        -this.config.maxPitch,
+        this.config.maxPitch,
+      );
+    }
+    this.viewImpulse.pitch = MathUtils.damp(this.viewImpulse.pitch, 0, 17, delta);
+    this.viewImpulse.yaw = MathUtils.damp(this.viewImpulse.yaw, 0, 17, delta);
+    this.viewImpulse.roll = MathUtils.damp(this.viewImpulse.roll, 0, 19, delta);
+    this.viewImpulse.kick = MathUtils.damp(this.viewImpulse.kick, 0, 20, delta);
 
     const planarSpeed = Math.hypot(this.velocity.x, this.velocity.z);
     const isMoving = planarSpeed > 0.3 && this.grounded;
@@ -73,8 +89,11 @@ export class FirstPersonController {
     this.bobWeight = MathUtils.damp(this.bobWeight, isMoving ? 1 : 0, 11, delta);
 
     const targetFov = this.input.isDown('sprint') && isMoving && !this.crouching ? 78 : 73;
-    this.camera.fov = MathUtils.damp(this.camera.fov, targetFov, 7, delta);
-    this.camera.updateProjectionMatrix();
+    const nextFov = MathUtils.damp(this.camera.fov, targetFov, 7, delta);
+    if (Math.abs(nextFov - this.camera.fov) > 0.001) {
+      this.camera.fov = nextFov;
+      this.camera.updateProjectionMatrix();
+    }
     this.#syncCamera(delta, 1);
   }
 
@@ -172,6 +191,30 @@ export class FirstPersonController {
     };
   }
 
+  applyCombatImpulse({
+    direction = null,
+    intensity = 0.5,
+    hitStop = 0,
+    recoil = 1,
+  } = {}) {
+    const strength = MathUtils.clamp(Number(intensity) || 0, 0, 1);
+    if (direction?.isVector3) {
+      _impulseDirection.copy(direction).normalize();
+      const localSide = (
+        _impulseDirection.x * Math.cos(this.yaw)
+        - _impulseDirection.z * Math.sin(this.yaw)
+      );
+      this.viewImpulse.yaw += localSide * 0.018 * strength * recoil;
+      this.viewImpulse.roll -= localSide * 0.025 * strength * recoil;
+    }
+    this.viewImpulse.pitch += 0.012 * strength * recoil;
+    this.viewImpulse.kick += 0.055 * strength * recoil;
+    this.combatPauseRemaining = Math.max(
+      this.combatPauseRemaining,
+      MathUtils.clamp(Number(hitStop) || 0, 0, 0.09),
+    );
+  }
+
   #updateStance(delta) {
     const wantsCrouch = this.input.isDown('crouch');
     if (wantsCrouch) {
@@ -207,8 +250,14 @@ export class FirstPersonController {
       _cameraOffset.y + this.eyeHeight + bobY,
       _cameraOffset.z - Math.sin(this.yaw) * bobX,
     );
+    this.camera.position.x += Math.sin(this.yaw) * this.viewImpulse.kick;
+    this.camera.position.z += Math.cos(this.yaw) * this.viewImpulse.kick;
     this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.set(this.pitch, this.yaw, 0);
+    this.camera.rotation.set(
+      this.pitch + this.viewImpulse.pitch,
+      this.yaw + this.viewImpulse.yaw,
+      this.viewImpulse.roll,
+    );
   }
 }
 

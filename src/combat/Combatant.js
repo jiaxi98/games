@@ -18,6 +18,10 @@ export class Combatant extends EventDispatcher {
     armor = {},
     poise = 35,
     positionProvider = null,
+    height = 1.82,
+    radius = 0.34,
+    attackOriginHeight = 1.34,
+    hurtVolumes = null,
   } = {}) {
     super();
     this.id = id;
@@ -34,6 +38,12 @@ export class Combatant extends EventDispatcher {
       ...armor,
     };
     this.poise = poise;
+    this.height = height;
+    this.radius = radius;
+    this.attackOriginHeight = attackOriginHeight;
+    this.hurtVolumes = normalizeHurtVolumes(
+      hurtVolumes ?? createDefaultHurtVolumes(this.armor, height, radius),
+    );
     this.guard = null;
     this.alive = true;
     this.staggerRemaining = 0;
@@ -74,6 +84,10 @@ export class Combatant extends EventDispatcher {
     this.guard = null;
   }
 
+  getHurtVolumes() {
+    return this.hurtVolumes;
+  }
+
   update(dt) {
     if (!this.alive) return;
     this.staggerRemaining = Math.max(0, this.staggerRemaining - dt);
@@ -107,14 +121,12 @@ export class Combatant extends EventDispatcher {
       this.guard = null;
     }
 
-    const result = {
+    const result = withImpactMetadata({
       outcome: this.alive ? (staggered ? 'stagger' : 'hit') : 'killed',
       damage,
       killed: !this.alive,
       staggered,
-      point: impact.point,
-      direction: impact.direction,
-    };
+    }, impact, this.maxHealth);
     this.dispatchEvent({ type: 'impact', impact, result });
     if (!this.alive) this.dispatchEvent({ type: 'death', impact });
     return result;
@@ -147,13 +159,17 @@ export class Combatant extends EventDispatcher {
 
     const staminaBefore = this.stamina;
     if (this.spendStamina(staminaCost, 0.85)) {
-      return {
+      return withImpactMetadata({
         outcome: isParry ? 'parried' : 'blocked',
         damage: 0,
         staminaDamage: staminaCost,
         killed: false,
         attackerStagger: isParry ? (guard.riposteWindow ?? 0.7) : 0,
-      };
+      }, {
+        ...impact,
+        material: guard.material ?? 'metal',
+        surface: isParry ? 'weapon' : (guard.surface ?? 'guard'),
+      }, this.maxHealth);
     }
 
     this.clearGuard();
@@ -163,14 +179,109 @@ export class Combatant extends EventDispatcher {
     const chipDamage = Math.max(impact.damage * 0.18, overflow * 0.25);
     this.health = Math.max(0, this.health - chipDamage);
     if (this.health === 0) this.alive = false;
-    return {
+    return withImpactMetadata({
       outcome: this.alive ? 'guard-broken' : 'killed',
       damage: chipDamage,
       staminaDamage: staminaCost,
       killed: !this.alive,
       staggered: true,
-    };
+    }, {
+      ...impact,
+      material: guard.material ?? 'metal',
+      surface: guard.surface ?? 'guard',
+    }, this.maxHealth);
   }
+}
+
+function createDefaultHurtVolumes(armor, height, radius) {
+  const armorStrength = Math.max(
+    armor[DamageType.CUT] ?? 0,
+    armor[DamageType.BLUNT] ?? 0,
+    armor[DamageType.PIERCE] ?? 0,
+  );
+  const torsoMaterial = armorStrength >= 0.28
+    ? 'metal'
+    : armorStrength >= 0.1 ? 'armor' : 'cloth';
+  const torsoSurface = armorStrength >= 0.28
+    ? 'plate'
+    : armorStrength >= 0.1 ? 'mail' : 'cloth';
+  const bodyScale = height / 1.82;
+  return [
+    {
+      shape: 'sphere',
+      offset: [0, 1.62 * bodyScale, 0],
+      radius: Math.min(radius, 0.23 * bodyScale),
+      hitZone: 'head',
+      material: 'flesh',
+      surface: 'skin',
+      damageMultiplier: 1.18,
+    },
+    {
+      shape: 'capsule',
+      offset: [0, 1.14 * bodyScale, 0],
+      halfHeight: 0.31 * bodyScale,
+      radius,
+      hitZone: 'torso',
+      material: torsoMaterial,
+      surface: torsoSurface,
+      damageMultiplier: 1,
+    },
+    {
+      shape: 'capsule',
+      offset: [0, 0.48 * bodyScale, 0],
+      halfHeight: 0.25 * bodyScale,
+      radius: Math.max(0.2, radius * 0.72),
+      hitZone: 'legs',
+      material: 'cloth',
+      surface: 'cloth',
+      damageMultiplier: 0.86,
+    },
+  ];
+}
+
+function normalizeHurtVolumes(volumes) {
+  return (volumes ?? []).map((volume) => {
+    const offset = volume.offset?.isVector3
+      ? volume.offset.clone()
+      : new Vector3(
+        volume.offset?.[0] ?? volume.offset?.x ?? 0,
+        volume.offset?.[1] ?? volume.offset?.y ?? 0,
+        volume.offset?.[2] ?? volume.offset?.z ?? 0,
+      );
+    return {
+      shape: volume.shape ?? (volume.halfHeight ? 'capsule' : 'sphere'),
+      radius: Math.max(0.01, Number(volume.radius) || 0.3),
+      halfHeight: Math.max(0, Number(volume.halfHeight) || 0),
+      hitZone: volume.hitZone ?? volume.zone ?? 'torso',
+      material: volume.material ?? 'flesh',
+      surface: volume.surface ?? volume.material ?? 'flesh',
+      damageMultiplier: Math.max(0, Number(volume.damageMultiplier) || 1),
+      offset,
+    };
+  });
+}
+
+function withImpactMetadata(result, impact = {}, maxHealth = 100) {
+  const outcomeScale = result.outcome === 'killed'
+    ? 1
+    : result.outcome === 'parried' ? 0.72
+      : result.outcome === 'blocked' ? 0.48 : 1;
+  const rawSeverity = impact.severity ?? impact.intensity
+    ?? ((result.damage ?? impact.damage ?? 0) / Math.max(1, maxHealth)) * 2.4;
+  const severity = Math.min(1, Math.max(0, rawSeverity * outcomeScale));
+  return {
+    ...result,
+    point: impact.point,
+    position: impact.point,
+    direction: impact.direction,
+    hitZone: impact.hitZone ?? 'torso',
+    surface: impact.surface ?? 'flesh',
+    material: impact.material ?? 'flesh',
+    severity,
+    intensity: severity,
+    attack: impact.attack,
+    weapon: impact.weapon,
+  };
 }
 
 const _incoming = new Vector3();

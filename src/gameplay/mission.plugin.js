@@ -13,6 +13,11 @@ import {
   Vector3,
 } from 'three';
 import { FactionId } from '../actors/Factions.js';
+import {
+  BattlePhase,
+  createBattlePhaseEvent,
+} from '../narrative/battlePhases.js';
+import { CAMPAIGN } from '../narrative/campaign.js';
 import { MissionStage, MissionState } from './MissionState.js';
 
 export const name = 'ashen-standard-mission';
@@ -20,8 +25,24 @@ export const name = 'ashen-standard-mission';
 const COMMANDS = Object.freeze([
   { id: 'rally', key: 'Q / 1', label: 'Rally' },
   { id: 'brace', key: 'R / 2', label: 'Brace' },
-  { id: 'advance', key: 'F / 3', label: 'Advance / Focus' },
+  { id: 'advance', key: 'F / 3', label: 'Advance' },
 ]);
+
+const COMMANDS_BY_STAGE = Object.freeze({
+  [MissionStage.RALLY]: Object.freeze([COMMANDS[0]]),
+  [MissionStage.BREAK]: Object.freeze([COMMANDS[1], COMMANDS[2]]),
+  [MissionStage.CAPTAIN]: Object.freeze([
+    { ...COMMANDS[2], label: 'Focus captain' },
+  ]),
+});
+
+const PHASE_BY_STAGE = Object.freeze({
+  [MissionStage.RECOVER]: BattlePhase.OPENING,
+  [MissionStage.RALLY]: BattlePhase.RALLY,
+  [MissionStage.BREAK]: BattlePhase.SPEAR_LINE,
+  [MissionStage.CAPTAIN]: BattlePhase.FORD,
+  [MissionStage.VICTORY]: BattlePhase.VICTORY,
+});
 
 const OBJECTIVES = Object.freeze({
   [MissionStage.RECOVER]: {
@@ -135,6 +156,9 @@ function createMissionSystem(context) {
   let lastProgressBucket = -1;
   let lastCommand = null;
   let pendingDeath = false;
+  let lastFocusRefreshAt = -Infinity;
+  let captainHUDVisible = false;
+  let captainPhase = null;
 
   stageSquad(alliedSquad, landmarks.hedgerowRally, new Vector3(0, 0, -1));
   stageSquad(enemySquad, landmarks.spearLine, new Vector3(0, 0, 1));
@@ -150,19 +174,33 @@ function createMissionSystem(context) {
   const setObjective = (stage, { phase, announcement } = {}) => {
     const objective = OBJECTIVES[stage];
     if (!objective) return;
-    events.emit('objective:set', { objective: { ...objective, progress: 0 } });
-    if (phase) events.emit('battle:phase', { phase });
+    events.emit('objective:set', {
+      authority: 'mission',
+      objective: { ...objective, progress: 0 },
+    });
+    if (phase) events.emit('battle:phase', createBattlePhaseEvent(phase));
     if (announcement) events.emit('announcement', announcement);
     lastProgressBucket = -1;
+  };
+
+  const emitCommands = (stage, active = null) => {
+    events.emit('commands', {
+      commands: COMMANDS_BY_STAGE[stage] ?? [],
+      active,
+    });
   };
 
   const beginMission = () => {
     if (started || mission.stage !== MissionStage.RECOVER) return;
     started = true;
-    setObjective(MissionStage.RECOVER, { phase: 'skirmish' });
-    events.emit('commands', { commands: [] });
-    events.emit('tutorial', { cue: 'interact', duration: 7 });
-    events.emit('battle:status', { phase: 'vanguard scattered' });
+    setObjective(MissionStage.RECOVER, { phase: PHASE_BY_STAGE[MissionStage.RECOVER] });
+    emitCommands(MissionStage.RECOVER);
+    events.emit('battle:status', createBattlePhaseEvent(BattlePhase.OPENING));
+    events.emit('subtitle', {
+      speaker: 'Gascon Sergeant',
+      text: 'The standard is down. Follow the lane and bring it clear!',
+      duration: 3.2,
+    });
   };
 
   const completeAndAdvance = (transition) => {
@@ -170,6 +208,7 @@ function createMissionSystem(context) {
     const completed = OBJECTIVES[transition.previous];
     if (completed) {
       events.emit('objective:complete', {
+        authority: 'mission',
         id: completed.id,
         objective: { ...completed, progress: 1, state: 'complete' },
         advance: false,
@@ -189,14 +228,15 @@ function createMissionSystem(context) {
         advanceTarget: landmarks.hedgerowRally,
       });
       setObjective(MissionStage.RALLY, {
-        phase: 'rally',
+        phase: PHASE_BY_STAGE[MissionStage.RALLY],
         announcement: {
           title: 'THE STANDARD IS YOURS',
           detail: 'Carry it west to the hedgerow. Q rallies nearby survivors.',
           tone: 'mission',
+          duration: 2.7,
         },
       });
-      events.emit('commands', { commands: COMMANDS, active: 'rally' });
+      emitCommands(MissionStage.RALLY, 'rally');
       events.emit('tutorial', {
         cue: { keys: ['Q', '1'], text: 'Rally nearby survivors at the hedgerow' },
         duration: 8,
@@ -216,14 +256,15 @@ function createMissionSystem(context) {
         advanceTarget: landmarks.spearLine,
       });
       setObjective(MissionStage.BREAK, {
-        phase: 'spear_line',
+        phase: PHASE_BY_STAGE[MissionStage.BREAK],
         announcement: {
           title: 'THE HEDGE HOLDS',
           detail: 'Brace the retinue, then drive it into the spear line.',
           tone: 'assault',
+          duration: 2.7,
         },
       });
-      events.emit('commands', { commands: COMMANDS, active: 'brace' });
+      emitCommands(MissionStage.BREAK, 'brace');
       events.emit('tutorial', {
         cue: { keys: ['R', 'F'], text: 'Brace, then advance into the wavering line' },
         duration: 8,
@@ -247,28 +288,32 @@ function createMissionSystem(context) {
         enemySquad?.issueOrder?.('advance', { target: landmarks.bridge });
       }
       setObjective(MissionStage.CAPTAIN, {
-        phase: 'ford',
+        phase: PHASE_BY_STAGE[MissionStage.CAPTAIN],
         announcement: {
           title: 'THE SPEAR LINE BREAKS',
           detail: 'Their captain is falling back toward the ford.',
           tone: 'climax',
+          duration: 2.7,
         },
       });
-      events.emit('commands', { commands: COMMANDS, active: 'advance' });
+      emitCommands(MissionStage.CAPTAIN, 'advance');
+      updateCaptainHUD(true);
       events.emit('subtitle', {
         speaker: 'Gascon Sergeant',
         text: 'There—the captain under the red cloth! Bring him down!',
       });
     } else if (transition.current === MissionStage.VICTORY) {
       setObjective(MissionStage.VICTORY, {
-        phase: 'victory',
+        phase: PHASE_BY_STAGE[MissionStage.VICTORY],
         announcement: {
           title: 'THE CAPTAIN FALLS',
           detail: 'Take the bridge and raise the Ashen Standard.',
           tone: 'routed',
+          duration: 2.7,
         },
       });
-      events.emit('commands', { commands: [] });
+      emitCommands(MissionStage.VICTORY);
+      updateCaptainHUD(false);
     } else if (transition.current === MissionStage.WON) {
       battlefield.triggerReversal({
         id: 'bridge-secured',
@@ -279,8 +324,9 @@ function createMissionSystem(context) {
         enemyShock: 0.45,
         advanceTarget: landmarks.enemyRise,
       });
-      events.emit('commands', { commands: [] });
+      emitCommands(MissionStage.WON);
       events.emit('interaction', { visible: false });
+      events.emit('reticle', { state: 'hidden' });
       events.emit('victory', {
         stats: [
           { label: 'Enemies felled', value: mission.kills },
@@ -292,10 +338,13 @@ function createMissionSystem(context) {
       input.exitPointerLock();
       player.enabled = false;
     } else if (transition.current === MissionStage.DEAD) {
-      events.emit('commands', { commands: [] });
+      emitCommands(MissionStage.DEAD);
       events.emit('interaction', { visible: false });
+      events.emit('reticle', { state: 'hidden' });
+      updateCaptainHUD(false);
       events.emit('mission:fail', {
         failedObjective: transition.previous,
+        ending: CAMPAIGN.endings.failureByStage?.[transition.previous],
         stats: [{ label: 'Enemies felled', value: mission.kills }],
       });
       input.exitPointerLock();
@@ -306,6 +355,13 @@ function createMissionSystem(context) {
   const api = Object.freeze({
     getState: () => mission.snapshot(),
     getCaptain: () => captain,
+    getDebugState: () => ({
+      standardPosition: standardPosition.clone(),
+      landmarks,
+      alliedSquad,
+      enemySquad,
+      captain,
+    }),
     restart: () => events.emit('mission:restart'),
     // Deterministic harness hooks for browser-level mission verification.
     // They invoke the same production transition and presentation paths as
@@ -358,6 +414,11 @@ function createMissionSystem(context) {
     const actor = target?.actor ?? target?.combatant?.actor;
     if (!actor || actor.factionId !== FactionId.SAINT_ORENS) return;
     const position = actor.object3d?.position ?? target?.position;
+    events.emit('battlefield:casualty', {
+      factionId: actor.factionId,
+      officer: actor === captain || actor.role === 'captain',
+      position,
+    });
     completeAndAdvance(mission.recordKill({
       captain: actor === captain || actor.role === 'captain',
       nearRally: distance2D(position, landmarks.hedgerowRally) <= 34,
@@ -380,6 +441,8 @@ function createMissionSystem(context) {
 
   const issueCommand = (command) => {
     if (mission.stage === MissionStage.DEAD || mission.stage === MissionStage.WON) return;
+    const stageCommands = COMMANDS_BY_STAGE[mission.stage] ?? [];
+    if (!stageCommands.some(({ id }) => id === command)) return;
     const nearRally = distance2D(player.position, landmarks.hedgerowRally) <= 30;
     const nearSpearLine = distance2D(player.position, landmarks.spearLine) <= 62;
     let affected = [];
@@ -418,8 +481,13 @@ function createMissionSystem(context) {
     }
 
     lastCommand = command;
-    events.emit('commands', { commands: COMMANDS, active: command });
-    events.emit('command:issued', { command, affected });
+    emitCommands(mission.stage, command);
+    events.emit('command:issued', {
+      command,
+      affected,
+      position: player.position,
+      success: affected.length > 0,
+    });
     completeAndAdvance(mission.command(command, {
       nearRally,
       nearSpearLine,
@@ -438,11 +506,11 @@ function createMissionSystem(context) {
       captain: stage === MissionStage.CAPTAIN && captain?.combatant?.alive,
       bridge: stage === MissionStage.VICTORY,
     };
-    standardMarker.update(standardPosition, active.standard, bob);
-    rallyMarker.update(landmarks.hedgerowRally, active.rally, bob);
-    spearMarker.update(landmarks.spearLine, active.spear, bob);
-    captainMarker.update(captain?.object3d?.position, active.captain, bob);
-    bridgeMarker.update(landmarks.bridge, active.bridge, bob);
+    standardMarker.update(standardPosition, active.standard, bob, player.position);
+    rallyMarker.update(landmarks.hedgerowRally, active.rally, bob, player.position);
+    spearMarker.update(landmarks.spearLine, active.spear, bob, player.position);
+    captainMarker.update(captain?.object3d?.position, active.captain, bob, player.position);
+    bridgeMarker.update(landmarks.bridge, active.bridge, bob, player.position);
 
     if (mission.standardRecovered && player.enabled) {
       standardProp.visible = true;
@@ -455,16 +523,25 @@ function createMissionSystem(context) {
     }
   };
 
+  const interactionInView = (position, maxDistance, minAlignment = 0.7) => {
+    if (!position || distance2D(player.position, position) > maxDistance) return false;
+    _interactionDirection.copy(position).sub(context.camera.position);
+    if (_interactionDirection.lengthSq() < 0.0001) return true;
+    _interactionDirection.normalize();
+    context.camera.getWorldDirection(_cameraForward);
+    return _cameraForward.dot(_interactionDirection) >= minAlignment;
+  };
+
   const updateInteraction = () => {
     let interaction = null;
     if (
       mission.stage === MissionStage.RECOVER
-      && distance2D(player.position, standardPosition) <= 3.4
+      && interactionInView(standardPosition, 3.4, 0.66)
     ) {
       interaction = { key: 'E', label: 'Recover the Ashen Standard' };
     } else if (
       mission.stage === MissionStage.VICTORY
-      && distance2D(player.position, landmarks.bridge) <= 8
+      && interactionInView(landmarks.bridge, 8, 0.5)
     ) {
       interaction = { key: 'E', label: 'Raise the standard over the bridge' };
     }
@@ -472,6 +549,7 @@ function createMissionSystem(context) {
     const visible = Boolean(interaction);
     if (visible !== interactionVisible || visible) {
       events.emit('interaction', interaction ?? { visible: false });
+      events.emit('reticle', { state: visible ? 'interact' : 'default' });
       interactionVisible = visible;
     }
     return interaction;
@@ -485,15 +563,51 @@ function createMissionSystem(context) {
 
     let detail = OBJECTIVES[mission.stage]?.detail;
     if (mission.stage === MissionStage.RALLY) {
-      detail = mission.rallyProgress > 0
-        ? `The survivors are answering: ${Math.min(mission.rallyProgress, mission.config.rallyRequired)}/${mission.config.rallyRequired} rally efforts.`
-        : 'Reach the hedgerow and use Q while survivors are nearby.';
+      if (progress >= 0.75) detail = 'The hedgerow is closing ranks beneath the standard.';
+      else if (progress >= 0.35) detail = 'More survivors are answering the rally.';
+      else detail = 'Reach the hedgerow and rally survivors within earshot.';
     } else if (mission.stage === MissionStage.BREAK) {
       const enemy = battleState?.factions?.get?.(FactionId.SAINT_ORENS);
-      detail = `Coordinate brace and advance; enemy morale ${Math.round((enemy?.morale ?? 1) * 100)}%.`;
+      const morale = enemy?.morale ?? 1;
+      detail = morale <= 0.34
+        ? 'The spear line is close to breaking—press the advance.'
+        : morale <= 0.58
+          ? 'Their formation is wavering. Keep the retinue together.'
+          : 'Brace for contact, then order the retinue forward.';
+    } else if (mission.stage === MissionStage.CAPTAIN) {
+      detail = 'Keep the captain in sight and focus the retinue on him.';
     }
-    events.emit('objective:progress', { progress, detail });
+    events.emit('objective:progress', { authority: 'mission', progress, detail });
   };
+
+  function updateCaptainHUD(force = false) {
+    const active = mission.stage === MissionStage.CAPTAIN && Boolean(captain?.combatant?.alive);
+    if (!active) {
+      if (captainHUDVisible || force) {
+        events.emit('encounter:captain', { visible: false });
+      }
+      captainHUDVisible = false;
+      captainPhase = null;
+      return;
+    }
+    const health = captain.combatant.health;
+    const maxHealth = captain.combatant.maxHealth;
+    const ratio = maxHealth > 0 ? health / maxHealth : 0;
+    const phase = ratio > 0.66 ? 'commanding' : ratio > 0.33 ? 'pressed' : 'desperate';
+    if (force || !captainHUDVisible || phase !== captainPhase) {
+      events.emit('encounter:captain', {
+        visible: true,
+        name: 'Captain of Saint-Orens',
+        health,
+        maxHealth,
+        phase,
+      });
+    } else {
+      events.emit('encounter:captain', { visible: true, health, maxHealth, phase });
+    }
+    captainHUDVisible = true;
+    captainPhase = phase;
+  }
 
   return {
     name,
@@ -506,6 +620,7 @@ function createMissionSystem(context) {
 
       updateMarkers(delta);
       const interaction = updateInteraction();
+      updateCaptainHUD();
 
       if (input.wasPressed('interact') && interaction) {
         if (mission.stage === MissionStage.RECOVER) {
@@ -541,15 +656,7 @@ function createMissionSystem(context) {
         }));
         emitProgress(battleState);
         events.emit('battle:status', {
-          phase: mission.stage === MissionStage.RECOVER
-            ? 'vanguard scattered'
-            : mission.stage === MissionStage.RALLY
-              ? 'standard recovered'
-              : mission.stage === MissionStage.BREAK
-                ? 'counterattack'
-                : mission.stage === MissionStage.CAPTAIN
-                  ? 'enemy line broken'
-                  : 'bridge contested',
+          ...createBattlePhaseEvent(PHASE_BY_STAGE[mission.stage] ?? BattlePhase.OPENING),
           allied: {
             cohesion: allied?.morale ?? 0,
             state: battleState?.squads?.find?.(
@@ -567,8 +674,9 @@ function createMissionSystem(context) {
       if (lastCommand && mission.stage === MissionStage.CAPTAIN && captain?.combatant?.alive) {
         // Keep a focus order useful as the captain falls back rather than
         // requiring the player to repeatedly refresh it.
-        if (lastCommand === 'advance' && Math.floor(elapsed) % 5 === 0) {
+        if (lastCommand === 'advance' && elapsed - lastFocusRefreshAt >= 5) {
           alliedSquad?.issueOrder?.('focus', { focusTarget: captain });
+          lastFocusRefreshAt = elapsed;
         }
       }
     },
@@ -576,7 +684,9 @@ function createMissionSystem(context) {
       player.enabled = true;
       if (app.gameplay === api) delete app.gameplay;
       events.emit('interaction', { visible: false });
-      events.emit('commands', { commands: [] });
+      events.emit('reticle', { state: 'hidden' });
+      events.emit('encounter:captain', { visible: false });
+      emitCommands(null);
       for (const dispose of disposers.splice(0).reverse()) dispose?.();
       markerRoot.removeFromParent();
       disposeGroup(markerRoot);
@@ -586,36 +696,43 @@ function createMissionSystem(context) {
 
 function createMarker(label, color) {
   const object3d = new Group();
+  const ringMaterial = new MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.68,
+    depthTest: true,
+    depthWrite: false,
+  });
   const ring = new Mesh(
     new CylinderGeometry(0.82, 0.82, 0.045, 28, 1, true),
-    new MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.68,
-      depthWrite: false,
-    }),
+    ringMaterial,
   );
   ring.position.y = 0.08;
   object3d.add(ring);
 
-  const sprite = new Sprite(new SpriteMaterial({
+  const spriteMaterial = new SpriteMaterial({
     map: createLabelTexture(label, color),
     transparent: true,
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
-  }));
+  });
+  const sprite = new Sprite(spriteMaterial);
   sprite.scale.set(5.4, 1.05, 1);
-  sprite.renderOrder = 40;
   object3d.add(sprite);
 
   return {
     object3d,
-    update(position, visible, bob = 0) {
+    update(position, visible, bob = 0, viewerPosition = null) {
       object3d.visible = Boolean(visible && position);
       if (!object3d.visible) return;
       object3d.position.copy(position);
       ring.rotation.y += 0.012;
       sprite.position.y = 3.2 + bob;
+      const distance = distance2D(position, viewerPosition);
+      const distanceScale = Math.max(0.72, Math.min(1.28, 0.72 + distance / 120));
+      sprite.scale.set(5.4 * distanceScale, 1.05 * distanceScale, 1);
+      spriteMaterial.opacity = distance > 145 ? 0.42 : distance > 85 ? 0.62 : 0.9;
+      ringMaterial.opacity = distance > 95 ? 0.3 : 0.68;
     },
   };
 }
@@ -711,5 +828,8 @@ function disposeGroup(root) {
     }
   });
 }
+
+const _cameraForward = new Vector3();
+const _interactionDirection = new Vector3();
 
 export default { name, install };

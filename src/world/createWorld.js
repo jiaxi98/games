@@ -12,6 +12,7 @@ import {
   createDistantBattleBelts,
   createFieldDressing,
   createHedgerowPocket,
+  createRouteCompositionCells,
   createStandard,
   createStoneBridgeAndFord,
 } from './battlefield.js';
@@ -51,26 +52,16 @@ function animateBanners(banners, elapsed, windStrength) {
       position.setXYZ(index, x, y + wave * 0.24, wave);
     }
     position.needsUpdate = true;
-    cloth.geometry.computeVertexNormals();
   });
 }
 
-function createPuddles({ sampleHeight, quality }) {
+function createPuddles({ materials, sampleHeight, quality }) {
   const group = new THREE.Group();
   group.name = 'StandingWater';
   const count = quality === 'low' ? 12 : quality === 'medium' ? 22 : 36;
   const geometry = new THREE.CircleGeometry(1, 18);
   geometry.rotateX(-Math.PI * 0.5);
-  const material = new THREE.MeshPhysicalMaterial({
-    color: 0x303d3e,
-    transparent: true,
-    opacity: 0.48,
-    roughness: 0.22,
-    metalness: 0,
-    depthWrite: false,
-    clearcoat: 0.7,
-    clearcoatRoughness: 0.24,
-  });
+  const material = materials.standingWater;
   const mesh = new THREE.InstancedMesh(geometry, material, count);
   mesh.name = 'InstancedLanePuddles';
   mesh.renderOrder = 2;
@@ -154,6 +145,7 @@ export function createWorld(scene, renderer, options = {}) {
   root.add(watercourse);
 
   const puddles = createPuddles({
+    materials,
     sampleHeight: terrain.sampleHeight,
     quality: config.quality,
   });
@@ -182,6 +174,14 @@ export function createWorld(scene, renderer, options = {}) {
     sampleHeight: terrain.sampleHeight,
   });
   root.add(bridge.group);
+
+  const routeComposition = createRouteCompositionCells({
+    materials,
+    sampleHeight: terrain.sampleHeight,
+    seed: config.seed,
+    quality: config.quality,
+  });
+  root.add(routeComposition);
 
   const vegetation = createVegetation({
     materials,
@@ -259,13 +259,12 @@ export function createWorld(scene, renderer, options = {}) {
   let elapsed = 0;
   let windStrength = 1;
   let battleIntensity = 1;
+  let bannerAnimationElapsed = 0;
+  const bannerAnimationInterval = config.quality === 'low' ? 1 / 12 : 1 / 20;
   const wind = new THREE.Vector3(1, 0, 0.15).normalize();
 
   function sampleHeight(x, z) {
-    if (
-      x >= -14 && x <= 0
-      && z >= -189 && z <= -159
-    ) {
+    if (bridge.walkableBounds.containsPoint(new THREE.Vector2(x, z))) {
       return Math.max(terrain.sampleHeight(x, z), bridge.bridgeSurfaceHeight);
     }
     return terrain.sampleHeight(x, z);
@@ -352,7 +351,11 @@ export function createWorld(scene, renderer, options = {}) {
         0.82 + Math.sin(elapsed * 0.14) * 0.12 + Math.sin(elapsed * 0.71) * 0.08
       );
       battleIntensity = state.battleIntensity ?? battleIntensity;
-      animateBanners(bannerCloths, elapsed, windStrength);
+      bannerAnimationElapsed += Math.min(delta, 0.1);
+      if (bannerAnimationElapsed >= bannerAnimationInterval) {
+        animateBanners(bannerCloths, elapsed, windStrength);
+        bannerAnimationElapsed %= bannerAnimationInterval;
+      }
       atmosphere.update(delta, elapsed, camera);
 
       // Honest far simulation: the ranks subtly surge rather than remaining a static card.

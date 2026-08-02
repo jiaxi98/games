@@ -22,13 +22,33 @@ describe('createAudioSystem', () => {
 
   it('tracks intensity and movement without requiring an audio context', () => {
     const system = createAudioSystem();
-    system.setBattleIntensity(0.8);
+    system.handleEvent('battle:phase', { phase: 'spear_line' });
     system.setWeatherIntensity(0.65);
     system.setMovement({ amount: 0.7 });
     expect(system.getState()).toMatchObject({
-      battleIntensity: 0.8,
+      battleIntensity: 1,
       weatherIntensity: 0.65,
       movementAmount: 0.7,
     });
+  });
+
+  it('tracks terminal mix states and accepts differentiated combat semantics headlessly', () => {
+    const system = createAudioSystem();
+    expect(() => {
+      system.handleEvent('combat:impact', { result: { outcome: 'parried' } });
+      system.handleEvent('combat:impact', { result: { outcome: 'blocked' } });
+      system.handleEvent('combat:impact', { result: { outcome: 'guard-broken' } });
+      system.handleEvent('combat:exhausted');
+      system.handleEvent('command:issued', { command: 'advance', success: true });
+      system.handleEvent('battlefield:cohesion', { state: 'routed' });
+      system.handleEvent('battlefield:reversal', { id: 'standard-recovered' });
+      system.handleEvent('mission:fail');
+    }).not.toThrow();
+    expect(system.getState().mixState).toBe('death');
+
+    system.handleEvent('resume');
+    expect(system.getState().mixState).toBe('playing');
+    system.handleEvent('victory');
+    expect(system.getState().mixState).toBe('victory');
   });
 });

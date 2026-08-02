@@ -1,18 +1,20 @@
 import {
-  BoxGeometry,
-  CapsuleGeometry,
-  ConeGeometry,
-  CylinderGeometry,
   Group,
   Mesh,
-  MeshStandardMaterial,
-  SphereGeometry,
-  TorusGeometry,
   Vector3,
 } from 'three';
 import { Combatant, DamageType } from '../combat/Combatant.js';
 import { WeaponState } from '../combat/MeleeCombatController.js';
 import { getFaction } from './Factions.js';
+import {
+  sharedBox,
+  sharedCapsule,
+  sharedCone,
+  sharedCylinder,
+  sharedMaterial,
+  sharedSphere,
+  sharedTorus,
+} from './SoldierAssets.js';
 
 export const SoldierRole = Object.freeze({
   SPEARMAN: 'spearman',
@@ -64,7 +66,10 @@ export class SoldierActor {
     this.forward = new Vector3(0, 0, 1);
     this.desiredForward = new Vector3(0, 0, 1);
     this.selected = false;
-    this.lod = 0;
+    this.lod = -1;
+    this.radius = role === SoldierRole.CAPTAIN ? 0.48 : 0.42;
+    this.height = role === SoldierRole.CAPTAIN ? 2.18 : 2.08;
+    this.mass = role === SoldierRole.CAPTAIN ? 1.35 : 1;
     this._time = (hashString(String(id ?? 'soldier')) % 1000) * 0.013;
     this._materials = [];
     this._geometries = [];
@@ -80,6 +85,9 @@ export class SoldierActor {
       staminaRegen: role === SoldierRole.CAPTAIN ? 24 : 19,
       armor: armor ?? defaultArmor(role),
       poise: poise ?? (role === SoldierRole.CAPTAIN ? 52 : 31),
+      height: this.height,
+      radius: this.radius,
+      attackOriginHeight: role === SoldierRole.CAPTAIN ? 1.48 : 1.38,
       positionProvider: () => this.object3d.position,
     });
     this.combatant.actor = this;
@@ -90,6 +98,7 @@ export class SoldierActor {
     this.combatant.addEventListener('death', () => {
       this._deathTime = 0;
     });
+    this.setLod(0);
   }
 
   setPosition(x, y, z) {
@@ -105,10 +114,17 @@ export class SoldierActor {
   }
 
   setLod(level) {
+    if (level === this.lod) return this;
     this.lod = level;
     this._parts.head.visible = level < 2;
     this._parts.leftArm.visible = level < 2;
     this._parts.rightArm.visible = level < 2;
+    const detailedShadow = level === 0;
+    this.object3d.traverse((object) => {
+      if (!object.isMesh) return;
+      object.castShadow = detailedShadow && object.userData.shadowDetail !== false;
+      object.receiveShadow = level < 2 && object.userData.receiveShadow !== false;
+    });
     return this;
   }
 
@@ -159,8 +175,8 @@ export class SoldierActor {
 
   dispose() {
     this.object3d.removeFromParent();
-    this._geometries.forEach((geometry) => geometry.dispose());
-    this._materials.forEach((material) => material.dispose());
+    // Geometry and materials are shared between soldiers and live for the
+    // lifetime of the game. Actors only own their Object3D hierarchy.
     this._geometries.length = 0;
     this._materials.length = 0;
   }
@@ -191,51 +207,51 @@ function buildSoldierMesh(root, actor, faction) {
   const body = new Group();
   body.position.y = 1.22;
   group.add(body);
-  const torso = mesh(actor, new CapsuleGeometry(0.3, 0.58, 3, 7), cloth);
+  const torso = mesh(actor, sharedCapsule(0.3, 0.58, 3, 7), cloth);
   torso.scale.set(1, 1, 0.72);
   torso.position.y = 0.18;
   torso.name = 'PaddedTorso';
   body.add(torso);
-  const mailSkirt = mesh(actor, new CylinderGeometry(0.255, 0.32, 0.42, 8), mail);
+  const mailSkirt = mesh(actor, sharedCylinder(0.255, 0.32, 0.42, 8), mail);
   mailSkirt.position.y = -0.27;
   mailSkirt.name = 'MailSkirt';
   body.add(mailSkirt);
-  const skirt = mesh(actor, new CylinderGeometry(0.27, 0.35, 0.38, 7), cloth);
+  const skirt = mesh(actor, sharedCylinder(0.27, 0.35, 0.38, 7), cloth);
   skirt.position.y = -0.31;
   skirt.scale.set(1, 1, 0.76);
   skirt.name = 'SurcoatSkirt';
   body.add(skirt);
-  const belt = mesh(actor, new CylinderGeometry(0.29, 0.29, 0.105, 10), leather);
+  const belt = mesh(actor, sharedCylinder(0.29, 0.29, 0.105, 10), leather);
   belt.position.y = -0.11;
   belt.name = 'SwordBelt';
   body.add(belt);
-  const buckle = mesh(actor, new BoxGeometry(0.075, 0.075, 0.035), heraldry);
+  const buckle = mesh(actor, sharedBox(0.075, 0.075, 0.035), heraldry);
   buckle.position.set(0, -0.11, 0.29);
   buckle.rotation.z = Math.PI / 4;
   buckle.name = 'BeltBuckle';
   body.add(buckle);
 
-  const tabard = mesh(actor, new BoxGeometry(0.38, 0.64, 0.055), cloth);
+  const tabard = mesh(actor, sharedBox(0.38, 0.64, 0.055), cloth);
   tabard.position.set(0, 0.14, 0.235);
   tabard.name = 'FactionTabard';
   body.add(tabard);
-  const tabardStripe = mesh(actor, new BoxGeometry(0.105, 0.62, 0.018), clothSecondary);
+  const tabardStripe = mesh(actor, sharedBox(0.105, 0.62, 0.018), clothSecondary);
   tabardStripe.position.set(0, 0.14, 0.27);
   tabardStripe.name = 'FactionStripe';
   body.add(tabardStripe);
-  const chestMark = mesh(actor, new BoxGeometry(0.2, 0.075, 0.02), heraldry);
+  const chestMark = mesh(actor, sharedBox(0.2, 0.075, 0.02), heraldry);
   chestMark.position.set(0, 0.27, 0.286);
   chestMark.name = 'FactionChestMark';
   body.add(chestMark);
 
   if (actor.role === SoldierRole.MAN_AT_ARMS || actor.role === SoldierRole.CAPTAIN) {
-    const breastplate = mesh(actor, new CapsuleGeometry(0.265, 0.36, 2, 8), iron);
+    const breastplate = mesh(actor, sharedCapsule(0.265, 0.36, 2, 8), iron);
     breastplate.position.set(0, 0.24, 0.115);
     breastplate.rotation.x = Math.PI / 2;
     breastplate.scale.set(1, 0.58, 1.08);
     breastplate.name = 'Breastplate';
     body.add(breastplate);
-    const plateRidge = mesh(actor, new BoxGeometry(0.045, 0.46, 0.04), brightIron);
+    const plateRidge = mesh(actor, sharedBox(0.045, 0.46, 0.04), brightIron);
     plateRidge.position.set(0, 0.25, 0.31);
     plateRidge.name = 'BreastplateRidge';
     body.add(plateRidge);
@@ -250,12 +266,12 @@ function buildSoldierMesh(root, actor, faction) {
   head.position.set(0, 1.98, 0);
   head.name = 'Head';
   group.add(head);
-  const coif = mesh(actor, new SphereGeometry(0.205, 8, 5), mail);
+  const coif = mesh(actor, sharedSphere(0.205, 8, 5), mail);
   coif.position.y = -0.035;
   coif.scale.set(1.03, 1.18, 0.98);
   coif.name = 'MailCoif';
   head.add(coif);
-  const face = mesh(actor, new SphereGeometry(0.185, 7, 5), skin);
+  const face = mesh(actor, sharedSphere(0.185, 7, 5), skin);
   face.position.z = 0.04;
   face.scale.z = 0.88;
   face.name = 'Face';
@@ -264,17 +280,17 @@ function buildSoldierMesh(root, actor, faction) {
   helmet.position.y = actor.role === SoldierRole.CAPTAIN ? 0.145 : 0.08;
   helmet.name = 'Helmet';
   head.add(helmet);
-  const helmetBand = mesh(actor, new TorusGeometry(0.19, 0.022, 4, 9), iron);
+  const helmetBand = mesh(actor, sharedTorus(0.19, 0.022, 4, 9), iron);
   helmetBand.rotation.x = Math.PI / 2;
   helmetBand.position.y = 0.06;
   helmetBand.name = 'HelmetBand';
   head.add(helmetBand);
-  const nasal = mesh(actor, new BoxGeometry(0.042, 0.24, 0.035), iron);
+  const nasal = mesh(actor, sharedBox(0.042, 0.24, 0.035), iron);
   nasal.position.set(0, 0, 0.185);
   nasal.name = 'NasalGuard';
   head.add(nasal);
   if (actor.role === SoldierRole.CAPTAIN) {
-    const crest = mesh(actor, new BoxGeometry(0.055, 0.26, 0.22), heraldry);
+    const crest = mesh(actor, sharedBox(0.055, 0.26, 0.22), heraldry);
     crest.position.set(0, 0.35, -0.01);
     crest.name = 'CaptainCrest';
     head.add(crest);
@@ -294,44 +310,44 @@ function buildSoldierMesh(root, actor, faction) {
   rightArm.userData.hand.add(weaponRoot);
   weaponRoot.position.set(0, -0.055, 0.015);
   if (actor.weapon === 'spear') {
-    const shaft = mesh(actor, new CylinderGeometry(0.019, 0.024, 2.75, 7), wood);
+    const shaft = mesh(actor, sharedCylinder(0.019, 0.024, 2.75, 7), wood);
     shaft.rotation.x = Math.PI / 2;
     shaft.position.z = 0.62;
     shaft.name = 'SpearShaft';
     weaponRoot.add(shaft);
-    const point = mesh(actor, new ConeGeometry(0.062, 0.3, 4), brightIron);
+    const point = mesh(actor, sharedCone(0.062, 0.3, 4), brightIron);
     point.rotation.x = Math.PI / 2;
     point.position.z = 2.14;
     point.name = 'SpearHead';
     weaponRoot.add(point);
-    const socket = mesh(actor, new CylinderGeometry(0.032, 0.026, 0.18, 7), darkIron);
+    const socket = mesh(actor, sharedCylinder(0.032, 0.026, 0.18, 7), darkIron);
     socket.rotation.x = Math.PI / 2;
     socket.position.z = 1.95;
     socket.name = 'SpearSocket';
     weaponRoot.add(socket);
   } else {
-    const grip = mesh(actor, new CylinderGeometry(0.027, 0.032, 0.22, 8), leather);
+    const grip = mesh(actor, sharedCylinder(0.027, 0.032, 0.22, 8), leather);
     grip.position.y = -0.08;
     grip.name = 'SwordGrip';
     weaponRoot.add(grip);
-    const blade = mesh(actor, new BoxGeometry(0.058, 0.68, 0.018), brightIron);
+    const blade = mesh(actor, sharedBox(0.058, 0.68, 0.018), brightIron);
     blade.position.y = -0.52;
     blade.name = 'SwordBlade';
     weaponRoot.add(blade);
-    const fuller = mesh(actor, new BoxGeometry(0.016, 0.62, 0.008), darkIron);
+    const fuller = mesh(actor, sharedBox(0.016, 0.62, 0.008), darkIron);
     fuller.position.set(0, -0.49, 0.014);
     fuller.name = 'SwordFuller';
     weaponRoot.add(fuller);
-    const tip = mesh(actor, new ConeGeometry(0.043, 0.16, 4), brightIron);
+    const tip = mesh(actor, sharedCone(0.043, 0.16, 4), brightIron);
     tip.rotation.z = Math.PI;
     tip.position.y = -0.94;
     tip.name = 'SwordPoint';
     weaponRoot.add(tip);
-    const guard = mesh(actor, new BoxGeometry(0.29, 0.035, 0.04), darkIron);
+    const guard = mesh(actor, sharedBox(0.29, 0.035, 0.04), darkIron);
     guard.position.y = -0.2;
     guard.name = 'SwordGuard';
     weaponRoot.add(guard);
-    const pommel = mesh(actor, new SphereGeometry(0.052, 6, 4), iron);
+    const pommel = mesh(actor, sharedSphere(0.052, 6, 4), iron);
     pommel.position.y = 0.075;
     pommel.name = 'SwordPommel';
     weaponRoot.add(pommel);
@@ -350,7 +366,7 @@ function buildSoldierMesh(root, actor, faction) {
 
   root.traverse((object) => {
     if (object.isMesh) {
-      object.castShadow = true;
+      object.castShadow = object.userData.shadowDetail !== false;
       object.receiveShadow = true;
     }
   });
@@ -369,11 +385,11 @@ function buildSoldierMesh(root, actor, faction) {
 
 function leg(actor, clothMaterial, bootMaterial) {
   const pivot = new Group();
-  const hose = mesh(actor, new CapsuleGeometry(0.105, 0.67, 3, 6), clothMaterial);
+  const hose = mesh(actor, sharedCapsule(0.105, 0.67, 3, 6), clothMaterial);
   hose.position.y = -0.31;
   hose.name = 'Leg';
   pivot.add(hose);
-  const boot = mesh(actor, new BoxGeometry(0.19, 0.18, 0.32), bootMaterial);
+  const boot = mesh(actor, sharedBox(0.19, 0.18, 0.32), bootMaterial);
   boot.position.set(0, -0.75, 0.07);
   boot.name = 'Boot';
   pivot.add(boot);
@@ -382,13 +398,13 @@ function leg(actor, clothMaterial, bootMaterial) {
 
 function arm(actor, sleeveMaterial, bracerMaterial, handMaterial, pauldronMaterial) {
   const pivot = new Group();
-  const upper = mesh(actor, new CapsuleGeometry(0.092, 0.25, 3, 7), sleeveMaterial);
+  const upper = mesh(actor, sharedCapsule(0.092, 0.25, 3, 7), sleeveMaterial);
   upper.position.y = -0.17;
   upper.name = 'UpperArm';
   pivot.add(upper);
 
   if (pauldronMaterial) {
-    const pauldron = mesh(actor, new SphereGeometry(0.135, 7, 4), pauldronMaterial);
+    const pauldron = mesh(actor, sharedSphere(0.135, 7, 4), pauldronMaterial);
     pauldron.position.y = -0.04;
     pauldron.scale.set(1.18, 0.72, 1.02);
     pauldron.name = 'Pauldron';
@@ -399,11 +415,11 @@ function arm(actor, sleeveMaterial, bracerMaterial, handMaterial, pauldronMateri
   forearm.position.y = -0.37;
   forearm.name = 'ForearmPivot';
   pivot.add(forearm);
-  const bracer = mesh(actor, new CapsuleGeometry(0.078, 0.22, 3, 7), bracerMaterial);
+  const bracer = mesh(actor, sharedCapsule(0.078, 0.22, 3, 7), bracerMaterial);
   bracer.position.y = -0.14;
   bracer.name = 'Bracer';
   forearm.add(bracer);
-  const hand = mesh(actor, new CapsuleGeometry(0.068, 0.08, 3, 7), handMaterial);
+  const hand = mesh(actor, sharedCapsule(0.068, 0.08, 3, 7), handMaterial);
   hand.position.y = -0.32;
   hand.name = 'Hand';
   forearm.add(hand);
@@ -414,31 +430,31 @@ function arm(actor, sleeveMaterial, bracerMaterial, handMaterial, pauldronMateri
 }
 
 function helmetGeometry(role) {
-  if (role === SoldierRole.CAPTAIN) return new ConeGeometry(0.225, 0.39, 8);
-  if (role === SoldierRole.SPEARMAN) return new ConeGeometry(0.225, 0.25, 9);
-  return new SphereGeometry(0.215, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.64);
+  if (role === SoldierRole.CAPTAIN) return sharedCone(0.225, 0.39, 8);
+  if (role === SoldierRole.SPEARMAN) return sharedCone(0.225, 0.25, 9);
+  return sharedSphere(0.215, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.64);
 }
 
 function createShield(actor, faction, cloth, clothSecondary, heraldry, leather, iron) {
   const shield = new Group();
   shield.name = 'Shield';
-  const rim = mesh(actor, new CylinderGeometry(0.29, 0.29, 0.055, 10), leather);
+  const rim = mesh(actor, sharedCylinder(0.29, 0.29, 0.055, 10), leather);
   rim.rotation.x = Math.PI / 2;
   rim.scale.x = 0.82;
   shield.add(rim);
-  const face = mesh(actor, new CylinderGeometry(0.26, 0.26, 0.065, 10), cloth);
+  const face = mesh(actor, sharedCylinder(0.26, 0.26, 0.065, 10), cloth);
   face.rotation.x = Math.PI / 2;
   face.position.z = 0.012;
   face.scale.x = 0.82;
   face.name = `${faction.key}:ShieldFace`;
   shield.add(face);
-  const pale = mesh(actor, new BoxGeometry(0.095, 0.46, 0.024), clothSecondary);
+  const pale = mesh(actor, sharedBox(0.095, 0.46, 0.024), clothSecondary);
   pale.position.z = 0.06;
   shield.add(pale);
-  const bar = mesh(actor, new BoxGeometry(0.37, 0.075, 0.026), heraldry);
+  const bar = mesh(actor, sharedBox(0.37, 0.075, 0.026), heraldry);
   bar.position.set(0, 0.055, 0.064);
   shield.add(bar);
-  const boss = mesh(actor, new SphereGeometry(0.075, 7, 4), iron);
+  const boss = mesh(actor, sharedSphere(0.075, 7, 4), iron);
   boss.position.z = 0.095;
   boss.scale.z = 0.55;
   boss.name = 'ShieldBoss';
@@ -451,41 +467,58 @@ function createStandard(group, actor, faction, wood, clothSecondary, heraldry) {
   standard.name = 'FactionStandard';
   standard.position.set(-0.3, 0, -0.03);
   group.add(standard);
-  const pole = mesh(actor, new CylinderGeometry(0.018, 0.023, 2.8, 7), wood);
+  const pole = mesh(actor, sharedCylinder(0.018, 0.023, 2.8, 7), wood);
   pole.position.y = 1.5;
   pole.name = 'StandardPole';
   standard.add(pole);
-  const spearhead = mesh(actor, new ConeGeometry(0.045, 0.2, 4), heraldry);
+  const spearhead = mesh(actor, sharedCone(0.045, 0.2, 4), heraldry);
   spearhead.position.y = 2.99;
   standard.add(spearhead);
 
   const bannerMaterial = material(actor, faction.standard, 0.92);
-  const banner = mesh(actor, new BoxGeometry(0.62, 0.42, 0.028), bannerMaterial);
+  const banner = mesh(actor, sharedBox(0.62, 0.42, 0.028), bannerMaterial);
   banner.position.set(-0.33, 2.58, 0);
   banner.name = `${faction.key}:Banner`;
   standard.add(banner);
-  const lowerFly = mesh(actor, new BoxGeometry(0.45, 0.17, 0.027), bannerMaterial);
+  const lowerFly = mesh(actor, sharedBox(0.45, 0.17, 0.027), bannerMaterial);
   lowerFly.position.set(-0.245, 2.31, 0);
   lowerFly.rotation.z = -0.08;
   standard.add(lowerFly);
-  const bannerStripe = mesh(actor, new BoxGeometry(0.1, 0.57, 0.012), clothSecondary);
+  const bannerStripe = mesh(actor, sharedBox(0.1, 0.57, 0.012), clothSecondary);
   bannerStripe.position.set(-0.12, 2.47, 0.022);
   standard.add(bannerStripe);
-  const bannerMark = mesh(actor, new BoxGeometry(0.29, 0.075, 0.014), heraldry);
+  const bannerMark = mesh(actor, sharedBox(0.29, 0.075, 0.014), heraldry);
   bannerMark.position.set(-0.36, 2.58, 0.024);
   standard.add(bannerMark);
 }
 
-function mesh(actor, geometry, meshMaterial) {
-  actor._geometries.push(geometry);
+function mesh(_actor, geometry, meshMaterial) {
   const result = new Mesh(geometry, meshMaterial);
+  const parameters = geometry.parameters ?? {};
+  const width = parameters.width ?? parameters.radius ?? parameters.radiusTop ?? 1;
+  const height = parameters.height ?? parameters.length ?? parameters.radius ?? 1;
+  const largest = Math.max(width, height);
+  result.userData.shadowDetail = (
+    largest >= 0.3
+    && ![
+      'BeltBuckle',
+      'FactionStripe',
+      'FactionChestMark',
+      'HelmetBand',
+      'NasalGuard',
+      'BreastplateRidge',
+      'SwordFuller',
+      'SwordGuard',
+      'SwordPommel',
+      'SpearSocket',
+      'ShieldBoss',
+    ].includes(result.name)
+  );
   return result;
 }
 
-function material(actor, color, roughness, metalness = 0) {
-  const result = new MeshStandardMaterial({ color, roughness, metalness, flatShading: true });
-  actor._materials.push(result);
-  return result;
+function material(_actor, color, roughness, metalness = 0) {
+  return sharedMaterial(color, roughness, metalness);
 }
 
 function defaultArmor(role) {

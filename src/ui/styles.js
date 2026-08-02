@@ -86,6 +86,11 @@ export function ensureUIStyles(documentRef = globalThis.document) {
       transition: opacity 180ms ease;
     }
 
+    .as-ui[data-active="false"] .as-hud-layer {
+      opacity: 0;
+      visibility: hidden;
+    }
+
     .as-ui[data-mode="menu"] .as-hud-layer,
     .as-ui[data-mode="pause"] .as-hud-layer,
     .as-ui[data-mode="death"] .as-hud-layer,
@@ -246,7 +251,7 @@ export function ensureUIStyles(documentRef = globalThis.document) {
 
     .as-battle-row {
       display: grid;
-      grid-template-columns: 1fr 64px;
+      grid-template-columns: 1fr auto;
       gap: 10px;
       align-items: center;
       margin-top: 5px;
@@ -255,29 +260,78 @@ export function ensureUIStyles(documentRef = globalThis.document) {
       text-transform: uppercase;
     }
 
-    .as-battle-track {
-      height: 4px;
-      overflow: hidden;
-      background: rgba(255,255,255,.12);
-    }
-
-    .as-battle-track > i {
-      display: block;
-      width: 100%;
-      height: 100%;
-      transform: scaleX(var(--cohesion, 1));
-      transform-origin: right;
-      transition: transform 350ms ease, background 240ms ease;
-      background: var(--as-brass);
-    }
-
-    .as-battle-row[data-side="enemy"] .as-battle-track > i {
-      background: var(--as-madder);
+    .as-battle-row > strong {
+      color: rgba(225, 216, 190, .72);
+      font-size: 8px;
+      letter-spacing: .13em;
     }
 
     .as-battle-row[data-state="routed"] {
       opacity: .5;
       text-decoration: line-through;
+    }
+
+    .as-encounter {
+      position: absolute;
+      left: 50%;
+      top: calc(var(--as-safe-top) + 4px);
+      width: min(460px, calc(100vw - 48px));
+      transform: translate(-50%, -12px);
+      padding: 8px 14px 10px;
+      background: linear-gradient(90deg, transparent, rgba(8, 11, 11, .76) 16%, rgba(8, 11, 11, .76) 84%, transparent);
+      text-align: center;
+      opacity: 0;
+      transition: opacity 180ms ease, transform 240ms ease;
+    }
+
+    .as-encounter[data-visible="true"] {
+      transform: translate(-50%, 0);
+      opacity: 1;
+    }
+
+    .as-encounter-copy {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: baseline;
+      color: rgba(228, 220, 199, .86);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .as-encounter-copy strong {
+      color: #eadfbe;
+      font: 400 16px/1 Georgia, serif;
+      letter-spacing: .04em;
+    }
+
+    .as-encounter-kicker,
+    .as-encounter-copy > span:last-child {
+      color: rgba(195, 170, 112, .76);
+      font-size: 8px;
+      letter-spacing: .16em;
+    }
+
+    .as-encounter-track {
+      display: block;
+      height: 3px;
+      margin-top: 8px;
+      overflow: hidden;
+      background: rgba(255,255,255,.12);
+    }
+
+    .as-encounter-track > i {
+      display: block;
+      width: 100%;
+      height: 100%;
+      transform: scaleX(var(--value, 1));
+      transform-origin: left;
+      background: var(--as-madder);
+      transition: transform 160ms linear, background 240ms ease;
+    }
+
+    .as-encounter[data-phase="desperate"] .as-encounter-track > i {
+      background: #b34b3f;
     }
 
     .as-reticle {
@@ -424,7 +478,7 @@ export function ensureUIStyles(documentRef = globalThis.document) {
       text-align: center;
       text-shadow: 0 2px 4px #000;
       opacity: 0;
-      transition: opacity 320ms ease, transform 420ms ease;
+      transition: opacity 180ms ease, transform 240ms ease;
     }
 
     .as-announcement[data-visible="true"] {
@@ -443,7 +497,7 @@ export function ensureUIStyles(documentRef = globalThis.document) {
 
     .as-announcement-title {
       color: #e4dcc5;
-      font-size: clamp(24px, 3vw, 42px);
+      font-size: clamp(22px, 2.6vw, 36px);
       line-height: 1;
       letter-spacing: .045em;
       text-transform: uppercase;

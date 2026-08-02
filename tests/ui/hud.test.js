@@ -8,6 +8,12 @@ describe('createHUD', () => {
     expect(() => {
       hud.setHealth(20, 100);
       hud.setObjective({ id: 'recover', title: 'Recover the standard' });
+      hud.setCaptainEncounter({
+        visible: true,
+        health: 50,
+        maxHealth: 100,
+        phase: 'pressed',
+      });
       hud.handleEvent('damage', { intensity: 1 });
       hud.dispose();
     }).not.toThrow();

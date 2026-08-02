@@ -5,8 +5,13 @@ export function selectTarget(actor, candidates, {
   maxRange = 18,
   protectPoint = null,
   focusTarget = null,
+  canTarget = null,
 } = {}) {
-  if (focusTarget?.combatant?.alive && focusTarget.factionId !== actor.factionId) {
+  if (
+    focusTarget?.combatant?.alive &&
+    focusTarget.factionId !== actor.factionId &&
+    (!canTarget || canTarget(focusTarget))
+  ) {
     return focusTarget;
   }
 
@@ -17,7 +22,8 @@ export function selectTarget(actor, candidates, {
       !candidate ||
       candidate === actor ||
       candidate.factionId === actor.factionId ||
-      !candidate.combatant?.alive
+      !candidate.combatant?.alive ||
+      (canTarget && !canTarget(candidate))
     ) continue;
 
     _delta.copy(candidate.object3d.position).sub(actor.object3d.position);
@@ -39,4 +45,3 @@ export function selectTarget(actor, candidates, {
 }
 
 const _delta = new Vector3();
-

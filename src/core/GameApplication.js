@@ -11,6 +11,7 @@ import { ExtensionRegistry } from './ExtensionRegistry.js';
 import { GameClock } from './GameClock.js';
 import { GameState, GameStates } from './GameState.js';
 import { SystemRegistry } from './SystemRegistry.js';
+import { PerformanceMonitor } from './PerformanceMonitor.js';
 import { createBootstrapEnvironment } from './BootstrapEnvironment.js';
 import { InputManager } from '../input/InputManager.js';
 import { CollisionWorld } from '../physics/CollisionWorld.js';
@@ -38,6 +39,7 @@ export class GameApplication {
     this.events = new EventBus();
     this.state = new GameState();
     this.clock = new GameClock();
+    this.performance = new PerformanceMonitor();
     this.systems = new SystemRegistry();
     this.scene = new Scene();
     this.camera = new PerspectiveCamera(73, 1, 0.05, 650);
@@ -73,6 +75,7 @@ export class GameApplication {
       player: this.player,
       state: this.state,
       events: this.events,
+      performance: this.performance,
       get frameAlpha() {
         return app.frameAlpha;
       },
@@ -146,6 +149,7 @@ export class GameApplication {
   onFrame(timeMs) {
     if (this.#destroyed) return;
     this.#animationFrame = requestAnimationFrame(this.onFrame);
+    this.performance.begin(timeMs);
     const frame = this.clock.tick(timeMs);
     this.frameAlpha = frame.alpha;
 
@@ -277,5 +281,9 @@ export class GameApplication {
         : this.player.grounded
           ? 'READY'
           : 'AIRBORNE';
+  }
+
+  getPerformanceSnapshot() {
+    return this.performance.sample(this.renderer);
   }
 }

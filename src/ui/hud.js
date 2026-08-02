@@ -10,6 +10,18 @@ function formatPhase(phase) {
   return String(phase ?? 'battle joined').replaceAll('-', ' ');
 }
 
+function qualitativeCohesion(value, state) {
+  if (state === 'routed') return 'Routed';
+  if (state === 'fractured') return 'Fractured';
+  if (state === 'pressured') return 'Pressed';
+  if (state === 'ordered') return 'Ordered';
+  const cohesion = clamp01(value);
+  if (cohesion >= 0.72) return 'Steady';
+  if (cohesion >= 0.45) return 'Pressed';
+  if (cohesion >= 0.22) return 'Fractured';
+  return 'Breaking';
+}
+
 function createRefMap(root) {
   const refs = {};
   root.querySelectorAll('[data-ref]').forEach((element) => {
@@ -48,7 +60,8 @@ export function createHUD(options = {}) {
   const campaign = options.campaign ?? CAMPAIGN;
   const root = documentRef.createElement('div');
   root.className = 'as-ui';
-  root.dataset.mode = 'game';
+  root.dataset.mode = options.showStart === false ? 'hidden' : 'game';
+  root.dataset.active = options.showStart === false ? 'false' : 'true';
   root.setAttribute('aria-label', `${campaign.title} game interface`);
   root.innerHTML = createHUDTemplate(campaign);
   (options.container ?? documentRef.body ?? documentRef.documentElement).append(root);
@@ -57,7 +70,7 @@ export function createHUD(options = {}) {
   const listeners = new Map();
   const timeouts = new Set();
   const state = {
-    mode: 'game',
+    mode: options.showStart === false ? 'hidden' : 'game',
     health: 1,
     stamina: 1,
     objective: null,
@@ -157,11 +170,14 @@ export function createHUD(options = {}) {
         cohesion: clamp01(battle[side].cohesion ?? state.battle[side].cohesion),
       };
     }
-    refs.battlePhase.textContent = formatPhase(state.battle.phase);
+    refs.battlePhase.textContent = battle.label ?? formatPhase(state.battle.phase);
     for (const side of ['allied', 'enemy']) {
       const row = refs[`${side}Row`];
       row.dataset.state = state.battle[side].state ?? 'ordered';
-      row.style.setProperty('--cohesion', state.battle[side].cohesion);
+      refs[`${side}State`].textContent = qualitativeCohesion(
+        state.battle[side].cohesion,
+        state.battle[side].state,
+      );
     }
   };
 
@@ -175,11 +191,26 @@ export function createHUD(options = {}) {
   const setInteraction = (interaction) => {
     if (!interaction || interaction.visible === false) {
       refs.interaction.dataset.visible = 'false';
+      if (refs.reticle.dataset.state === 'interact') setReticle('default');
       return;
     }
     refs.interactionKey.textContent = interaction.key ?? 'E';
     refs.interactionLabel.textContent = interaction.label ?? 'Interact';
     refs.interaction.dataset.visible = 'true';
+    setReticle('interact');
+  };
+
+  const setCaptainEncounter = (encounter = {}) => {
+    if (!encounter || encounter.visible === false) {
+      refs.encounter.dataset.visible = 'false';
+      return;
+    }
+    const health = normaliseRatio(encounter.health, encounter.maxHealth);
+    refs.encounterName.textContent = encounter.name ?? 'Captain of Saint-Orens';
+    refs.encounterPhase.textContent = formatPhase(encounter.phase ?? 'commanding');
+    refs.encounterFill.style.setProperty('--value', health);
+    refs.encounter.dataset.phase = encounter.phase ?? 'commanding';
+    refs.encounter.dataset.visible = 'true';
   };
 
   const showTutorial = (cue, cueOptions = {}) => {
@@ -221,7 +252,7 @@ export function createHUD(options = {}) {
     refs.announcement.dataset.visible = 'true';
     later(() => {
       if (token === announcementToken) refs.announcement.dataset.visible = 'false';
-    }, (announcementOptions.duration ?? 4.25) * 1000);
+    }, (announcementOptions.duration ?? 2.75) * 1000);
   };
 
   const showSubtitle = (speaker, text, subtitleOptions = {}) => {
@@ -267,6 +298,7 @@ export function createHUD(options = {}) {
   const hidePanel = () => {
     refs.panelScrim.dataset.visible = 'false';
     root.dataset.mode = 'game';
+    root.dataset.active = 'true';
     state.mode = 'game';
     panelReturnFocus?.focus?.();
     panelReturnFocus = null;
@@ -275,6 +307,7 @@ export function createHUD(options = {}) {
   const showPanel = (mode, panel) => {
     state.mode = mode;
     root.dataset.mode = mode;
+    root.dataset.active = mode === 'menu' ? 'false' : 'true';
     panelReturnFocus = documentRef.activeElement;
     fillPanel(refs, panel);
     refs.panelScrim.dataset.visible = 'true';
@@ -370,10 +403,13 @@ export function createHUD(options = {}) {
         setBattleStatus(detail);
         break;
       case 'battle:phase':
-        setBattleStatus({ phase: detail.phase });
+        setBattleStatus(detail);
         break;
       case 'interaction':
         setInteraction(detail);
+        break;
+      case 'encounter:captain':
+        setCaptainEncounter(detail);
         break;
       case 'reticle':
         setReticle(detail);
@@ -433,6 +469,7 @@ export function createHUD(options = {}) {
     if (frame.battle) setBattleStatus(frame.battle);
     if (frame.reticle) setReticle(frame.reticle);
     if ('interaction' in frame) setInteraction(frame.interaction);
+    if ('captainEncounter' in frame) setCaptainEncounter(frame.captainEncounter);
   };
 
   const getState = () => ({
@@ -471,6 +508,7 @@ export function createHUD(options = {}) {
     setBattleStatus,
     setReticle,
     setInteraction,
+    setCaptainEncounter,
     setCommands,
     showTutorial,
     announce,
@@ -511,6 +549,7 @@ function createHeadlessHUD() {
     setBattleStatus: noOp,
     setReticle: noOp,
     setInteraction: noOp,
+    setCaptainEncounter: noOp,
     setCommands: noOp,
     showTutorial: noOp,
     announce: noOp,

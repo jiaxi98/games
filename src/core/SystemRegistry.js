@@ -32,7 +32,8 @@ export class SystemRegistry {
       throw new Error(`Unknown system phase "${phase}".`);
     }
 
-    for (const { system } of [...this.#systems]) {
+    for (let index = 0; index < this.#systems.length; index += 1) {
+      const { system } = this.#systems[index];
       system[phase]?.(...args);
     }
   }

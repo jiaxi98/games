@@ -6,6 +6,7 @@ import {
   setParam,
   setPannerPosition,
 } from './procedural.js';
+import { getBattlePhase } from '../narrative/battlePhases.js';
 
 const AudioContextClass = () => globalThis.AudioContext ?? globalThis.webkitAudioContext;
 
@@ -48,6 +49,9 @@ export function createAudioSystem(options = {}) {
   let armorTimer = 0;
   let distantTimer = 0.4;
   let rainTimer = 0.2;
+  let mixState = 'playing';
+  let eventClock = 0;
+  const semanticCooldowns = new Map();
 
   const emit = (type, detail = {}) => {
     listeners.get(type)?.forEach((listener) => listener(detail));
@@ -130,6 +134,28 @@ export function createAudioSystem(options = {}) {
 
   const setMovement = (movement = {}) => {
     movementAmount = clamp(movement.amount ?? movement.speed ?? movement, 0, 1.5);
+  };
+
+  const canPlaySemantic = (key, cooldown = 0.25) => {
+    const readyAt = semanticCooldowns.get(key) ?? -Infinity;
+    if (eventClock < readyAt) return false;
+    semanticCooldowns.set(key, eventClock + cooldown);
+    return true;
+  };
+
+  const setMixState = (nextState = 'playing') => {
+    mixState = nextState;
+    if (!nodes || !context) return;
+    const mix = {
+      playing: { master: options.masterVolume ?? 0.86, ambience: options.ambienceVolume ?? 0.72, effects: options.effectsVolume ?? 0.9, ui: options.uiVolume ?? 0.72 },
+      pause: { master: 0.58, ambience: 0.11, effects: 0.25, ui: 0.72 },
+      death: { master: 0.6, ambience: 0.08, effects: 0.16, ui: 0.62 },
+      victory: { master: 0.82, ambience: 0.34, effects: 0.36, ui: 0.72 },
+    }[nextState] ?? {};
+    setParam(nodes.master.gain, mix.master ?? 0.86, context, 0.35);
+    setParam(nodes.buses.ambience.gain, mix.ambience ?? 0.72, context, 0.35);
+    setParam(nodes.buses.effects.gain, mix.effects ?? 0.9, context, 0.35);
+    setParam(nodes.buses.ui.gain, mix.ui ?? 0.72, context, 0.25);
   };
 
   const playNoiseBurst = (config = {}) => {
@@ -245,10 +271,73 @@ export function createAudioSystem(options = {}) {
   };
 
   const impact = (impactOptions = {}) => {
-    const material = typeof impactOptions === 'string' ? impactOptions : impactOptions.material ?? 'flesh';
+    if (typeof impactOptions === 'string') impactOptions = { material: impactOptions };
+    const result = typeof impactOptions === 'object' ? impactOptions.result : null;
+    const outcome = impactOptions.outcome ?? result?.outcome;
+    const material = outcome === 'parried'
+      ? 'parry'
+      : outcome === 'blocked'
+        ? 'block'
+        : outcome === 'guard-broken'
+          ? 'guard-break'
+          : impactOptions.material ?? 'flesh';
     const severity = clamp(impactOptions.severity ?? 0.65);
     const position = impactOptions.position;
-    if (material === 'metal' || material === 'armor' || material === 'weapon') {
+    if (material === 'parry') {
+      playNoiseBurst({
+        frequency: 2800,
+        q: 2.4,
+        duration: 0.022,
+        release: 0.07,
+        volume: 0.38 + severity * 0.18,
+        position,
+      });
+      playTone({
+        frequency: 1680,
+        endFrequency: 980,
+        type: 'triangle',
+        volume: 0.27 + severity * 0.16,
+        duration: 0.035,
+        release: 0.24,
+        position,
+      });
+    } else if (material === 'guard-break') {
+      playNoiseBurst({
+        frequency: 520,
+        q: 0.75,
+        duration: 0.12,
+        release: 0.2,
+        volume: 0.42 + severity * 0.2,
+        position,
+      });
+      playTone({
+        frequency: 142,
+        endFrequency: 54,
+        type: 'sawtooth',
+        volume: 0.28 + severity * 0.16,
+        duration: 0.12,
+        release: 0.28,
+        position,
+      });
+    } else if (material === 'block') {
+      playNoiseBurst({
+        frequency: 780,
+        q: 1.25,
+        duration: 0.055,
+        release: 0.12,
+        volume: 0.28 + severity * 0.2,
+        position,
+      });
+      playTone({
+        frequency: 410,
+        endFrequency: 230,
+        type: 'triangle',
+        volume: 0.18 + severity * 0.16,
+        duration: 0.06,
+        release: 0.16,
+        position,
+      });
+    } else if (material === 'metal' || material === 'armor' || material === 'weapon') {
       const frequency = 920 + random() * 620;
       playNoiseBurst({
         frequency: 1650,
@@ -303,6 +392,61 @@ export function createAudioSystem(options = {}) {
         duration: 0.06,
         release: 0.12,
         position,
+      });
+    }
+  };
+
+  const exhaustion = (exhaustionOptions = {}) => {
+    if (!canPlaySemantic('exhaustion', 0.65)) return;
+    playNoiseBurst({
+      frequency: 145,
+      q: 0.42,
+      playbackRate: 0.58,
+      volume: clamp(exhaustionOptions.volume ?? 0.18, 0, 0.35),
+      duration: 0.18,
+      release: 0.28,
+      destination: nodes?.buses.ui,
+    });
+    playTone({
+      frequency: 108,
+      endFrequency: 48,
+      type: 'sine',
+      volume: 0.12,
+      duration: 0.16,
+      release: 0.25,
+      destination: nodes?.buses.ui,
+    });
+  };
+
+  const semantic = (kind, detail = {}) => {
+    const profiles = {
+      command: { cooldown: 0.3, frequency: detail.success === false ? 170 : 310, endFrequency: detail.success === false ? 125 : 430, volume: 0.08 },
+      cohesion: { cooldown: 1.1, frequency: detail.state === 'routed' ? 116 : 210, endFrequency: detail.state === 'routed' ? 64 : 260, volume: detail.state === 'routed' ? 0.12 : 0.065 },
+      reversal: { cooldown: 1.8, horn: true },
+      casualty: { cooldown: 0.22, frequency: 86, endFrequency: 54, volume: detail.officer ? 0.12 : 0.055 },
+      aiImpact: { cooldown: 0.12, noise: true },
+    };
+    const profile = profiles[kind];
+    if (!profile || !canPlaySemantic(kind, profile.cooldown)) return;
+    if (profile.horn) {
+      horn({ ...detail, volume: 0.085 });
+    } else if (profile.noise) {
+      impact({
+        material: detail.material ?? 'armor',
+        outcome: detail.outcome,
+        severity: detail.severity ?? 0.3,
+        position: detail.position,
+      });
+    } else {
+      playTone({
+        frequency: profile.frequency,
+        endFrequency: profile.endFrequency,
+        type: 'triangle',
+        volume: profile.volume,
+        duration: 0.08,
+        release: 0.16,
+        position: detail.position,
+        destination: detail.position ? undefined : nodes?.buses.ui,
       });
     }
   };
@@ -408,6 +552,7 @@ export function createAudioSystem(options = {}) {
 
   const update = (deltaSeconds, frame = {}) => {
     const delta = Math.max(0, Number(deltaSeconds) || 0);
+    eventClock += delta;
     if (frame.listener) setListener(frame.listener);
     if (frame.battleIntensity != null) setBattleIntensity(frame.battleIntensity);
     if (frame.weatherIntensity != null) setWeatherIntensity(frame.weatherIntensity);
@@ -475,6 +620,7 @@ export function createAudioSystem(options = {}) {
       case 'combat:impact':
       case 'impact':
         impact(detail);
+        if (detail.attacker?.id !== 'player') semantic('aiImpact', detail);
         break;
       case 'player:damage':
       case 'damage':
@@ -494,25 +640,64 @@ export function createAudioSystem(options = {}) {
         ui('complete');
         break;
       case 'battle:phase':
-        setBattleIntensity(detail.intensity ?? {
-          skirmish: 0.35,
-          assault: 0.62,
-          desperate: 0.82,
-          climax: 1,
-          routed: 0.5,
-        }[detail.phase] ?? battleIntensity);
-        if (detail.phase === 'climax' || detail.phase === 'routed') horn(detail);
+        setBattleIntensity(detail.intensity ?? getBattlePhase(detail.phase).intensity);
+        if (detail.phase === 'ford' || detail.phase === 'victory') horn(detail);
+        break;
+      case 'command:issued':
+        semantic('command', detail);
+        break;
+      case 'battlefield:cohesion':
+        semantic('cohesion', detail);
+        break;
+      case 'battlefield:rout':
+        semantic('cohesion', { ...detail, state: 'routed' });
+        break;
+      case 'battlefield:reversal':
+        semantic('reversal', detail);
+        break;
+      case 'casualty':
+      case 'battlefield:casualty':
+        semantic('casualty', detail);
+        break;
+      case 'battlefield:ai-impact':
+        semantic('aiImpact', {
+          ...detail,
+          outcome: detail.result?.outcome,
+          material: detail.result?.material ?? detail.result?.surface,
+          severity: detail.result?.severity ?? detail.result?.intensity,
+          position: detail.result?.point ?? detail.target?.object3d?.position,
+        });
+        break;
+      case 'combat:exhausted':
+      case 'player:exhausted':
+      case 'exhaustion':
+        exhaustion(detail);
         break;
       case 'pause':
         ui('pause');
-        if (nodes && context) setParam(nodes.buses.ambience.gain, 0.12, context, 0.25);
+        setMixState('pause');
         break;
       case 'resume':
-        if (nodes && context) setParam(nodes.buses.ambience.gain, options.ambienceVolume ?? 0.72, context, 0.25);
+        setMixState('playing');
         break;
       case 'mission:complete':
       case 'victory':
+        setMixState('victory');
         horn({ ...detail, volume: 0.11 });
+        break;
+      case 'mission:fail':
+      case 'death':
+      case 'player:death':
+        setMixState('death');
+        playTone({
+          frequency: 86,
+          endFrequency: 34,
+          type: 'sine',
+          volume: 0.16,
+          duration: 0.4,
+          release: 0.8,
+          destination: nodes?.buses.ui,
+        });
         break;
       default:
         break;
@@ -531,6 +716,7 @@ export function createAudioSystem(options = {}) {
     battleIntensity,
     weatherIntensity,
     movementAmount,
+    mixState,
     disposed,
   });
 
@@ -571,6 +757,9 @@ export function createAudioSystem(options = {}) {
     impact,
     damage,
     kill,
+    exhaustion,
+    semantic,
+    setMixState,
     ui,
     horn,
     handleEvent,

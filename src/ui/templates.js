@@ -24,11 +24,20 @@ export function createHUDTemplate(campaign) {
       <section class="as-battle as-sans" aria-label="Battle cohesion">
         <div class="as-battle-phase" data-ref="battle-phase">Vanguard scattered</div>
         <div class="as-battle-row" data-ref="allied-row" data-side="allied">
-          <span>${allied}</span><span class="as-battle-track"><i></i></span>
+          <span>${allied}</span><strong data-ref="allied-state">Scattered</strong>
         </div>
         <div class="as-battle-row" data-ref="enemy-row" data-side="enemy">
-          <span>${enemy}</span><span class="as-battle-track"><i></i></span>
+          <span>${enemy}</span><strong data-ref="enemy-state">Ordered</strong>
         </div>
+      </section>
+
+      <section class="as-encounter as-sans" data-ref="encounter" data-visible="false">
+        <div class="as-encounter-copy">
+          <span class="as-encounter-kicker">Enemy captain</span>
+          <strong data-ref="encounter-name">Captain of Saint-Orens</strong>
+          <span data-ref="encounter-phase">Commanding</span>
+        </div>
+        <span class="as-encounter-track"><i data-ref="encounter-fill"></i></span>
       </section>
 
       <div class="as-reticle" data-ref="reticle" aria-hidden="true"></div>

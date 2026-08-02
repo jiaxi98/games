@@ -245,17 +245,60 @@ export function createTerrain(options = {}) {
 
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.98,
+    roughness: 0.9,
     metalness: 0,
     flatShading: false,
   });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.worldTime = { value: 0 };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec3 vTerrainWorldPosition;`,
+      )
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+        vTerrainWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec3 vTerrainWorldPosition;
+        float terrainNoise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453);
+          float b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(127.1, 311.7))) * 43758.5453);
+          float c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(127.1, 311.7))) * 43758.5453);
+          float d = fract(sin(dot(i + vec2(1.0, 1.0), vec2(127.1, 311.7))) * 43758.5453);
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }`,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        float terrainMacro = terrainNoise(vTerrainWorldPosition.xz * 0.115);
+        float terrainDetail = terrainNoise(vTerrainWorldPosition.xz * 0.48 + 17.3);
+        float wetTrack = smoothstep(0.61, 0.9, terrainNoise(
+          vTerrainWorldPosition.xz * 0.052 + vec2(9.7, 31.4)
+        ));
+        roughnessFactor = clamp(
+          roughnessFactor - wetTrack * 0.3 + (terrainDetail - 0.5) * 0.09,
+          0.42,
+          1.0
+        );
+        diffuseColor.rgb *= 0.9 + terrainMacro * 0.16;
+        diffuseColor.rgb *= 1.0 - wetTrack * 0.09;`,
+      );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <dithering_fragment>',
       `
         float grain = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
-        gl_FragColor.rgb *= 0.965 + grain * 0.055;
+        gl_FragColor.rgb *= 0.95 + grain * 0.075;
         #include <dithering_fragment>
       `,
     );

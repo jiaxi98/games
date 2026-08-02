@@ -12,12 +12,12 @@ import {
 import { WeaponState } from './MeleeCombatController.js';
 
 const NEUTRAL = Object.freeze({
-  weaponPosition: [0.24, -0.28, -0.62],
-  weaponRotation: [0.3, 0.17, -0.09],
-  rightArmPosition: [0.35, -0.34, -0.4],
-  rightArmRotation: [0.25, -0.16, -0.2],
-  leftArmPosition: [-0.5, -0.38, -0.4],
-  leftArmRotation: [0.25, -0.65, 0.3],
+  weaponPosition: [0.36, -0.42, -0.69],
+  weaponRotation: [0.22, 0.25, -0.12],
+  rightArmPosition: [0.48, -0.53, -0.44],
+  rightArmRotation: [0.17, -0.22, -0.18],
+  leftArmPosition: [-0.25, -0.52, -0.48],
+  leftArmRotation: [0.18, -0.46, 0.22],
 });
 
 export function createFirstPersonWeaponRig({
@@ -111,17 +111,25 @@ export function createFirstPersonWeaponRig({
   });
 
   let elapsed = 0;
+  let recoil = 0;
+  let recoilSide = 0;
   applyPose(weaponRoot, rightArm, leftArm, { state: WeaponState.IDLE, progress: 0 });
 
   return {
     object3d: root,
     update(dt, pose) {
       elapsed += dt;
+      recoil *= Math.exp(-Math.max(0, dt) * 21);
       const breathe = Math.sin(elapsed * 1.65);
       const settle = Math.sin(elapsed * 0.82 + 0.7);
-      root.position.set(settle * 0.004, breathe * 0.006, 0);
-      root.rotation.z = settle * 0.003;
+      root.position.set(settle * 0.005 + recoilSide * recoil * 0.02, breathe * 0.006 - 0.015, recoil * 0.075);
+      root.rotation.x = recoil * 0.035;
+      root.rotation.z = settle * 0.003 - recoilSide * recoil * 0.04;
       applyPose(weaponRoot, rightArm, leftArm, pose);
+    },
+    applyImpulse({ intensity = 0.5, direction = null } = {}) {
+      recoil = Math.max(recoil, Math.max(0, Math.min(1, intensity)));
+      recoilSide = direction?.x ? Math.sign(direction.x) : 0;
     },
     dispose() {
       root.traverse((object) => object.geometry?.dispose());
@@ -348,7 +356,7 @@ function applyPose(weaponRoot, rightArm, leftArm, pose = {}) {
       const [start, end] = attack.arc ?? [-0.8, 0.7];
       const yaw = start + (end - start) * t;
       weaponRoot.position.set(0.18 - side * t * 0.11, -0.22 + Math.sin(t * Math.PI) * 0.06, -0.62);
-      weaponRoot.rotation.set(0.32 - t * 0.12, yaw * 0.72, side * (0.18 - t * 0.32));
+      weaponRoot.rotation.set(0.32 - t * 0.12, yaw * 0.96, side * (0.18 - t * 0.32));
       rightArm.rotation.set(-0.54 + t * 0.16, yaw * 0.28, -0.22 + side * t * 0.18);
       leftArm.rotation.set(-0.43 + t * 0.14, yaw * 0.2, 0.2 - side * t * 0.12);
     }

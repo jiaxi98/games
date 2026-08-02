@@ -1,3 +1,4 @@
+export { AttackCoordinator } from './AttackCoordinator.js';
 export { Formation, FormationType } from './Formation.js';
 export { BrainState, SoldierBrain } from './SoldierBrain.js';
 export { COHESION_THRESHOLDS, CohesionState, SquadMorale } from './SquadMorale.js';

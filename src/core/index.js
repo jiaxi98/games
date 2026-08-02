@@ -2,6 +2,7 @@ export { EventBus } from './EventBus.js';
 export { ExtensionRegistry } from './ExtensionRegistry.js';
 export { GameApplication } from './GameApplication.js';
 export { GameClock } from './GameClock.js';
+export { PerformanceMonitor } from './PerformanceMonitor.js';
 export { GameState, GameStates } from './GameState.js';
 export { SystemRegistry } from './SystemRegistry.js';
 export { registerExtension } from './registerExtension.js';

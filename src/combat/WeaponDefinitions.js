@@ -6,6 +6,10 @@ const freezeAttack = (attack) => Object.freeze({
   hitStop: 0.045,
   poiseDamage: attack.damage * 0.62,
   ...attack,
+  shape: attack.shape ?? (attack.thrust ? 'thrust' : attack.vertical ? 'overhead' : 'sweep'),
+  contactHeight: attack.contactHeight ?? (attack.vertical ? 1.48 : 1.32),
+  contactRadius: attack.contactRadius ?? (attack.thrust ? 0.11 : attack.vertical ? 0.16 : 0.2),
+  cleave: attack.cleave ?? (attack.thrust || attack.vertical ? 1 : 2),
 });
 
 export const WEAPONS = Object.freeze({
@@ -45,6 +49,7 @@ export const WEAPONS = Object.freeze({
         poiseDamage: 34,
         arc: [0.1, -0.1],
         vertical: true,
+        cleave: 1,
       }),
     ]),
     heavy: freezeAttack({
@@ -57,6 +62,7 @@ export const WEAPONS = Object.freeze({
       damageType: DamageType.BLUNT,
       poiseDamage: 52,
       arc: [-0.42, 0.28],
+      cleave: 1,
     }),
   }),
   armingSword: Object.freeze({
@@ -96,6 +102,7 @@ export const WEAPONS = Object.freeze({
         poiseDamage: 22,
         thrust: true,
         arc: [0, 0],
+        cleave: 1,
       }),
     ]),
     heavy: freezeAttack({
@@ -108,6 +115,7 @@ export const WEAPONS = Object.freeze({
       damageType: DamageType.BLUNT,
       poiseDamage: 45,
       arc: [-0.25, 0.2],
+      cleave: 1,
     }),
   }),
   spear: Object.freeze({
@@ -160,4 +168,3 @@ export function getWeaponDefinition(id = 'longsword') {
   if (!weapon) throw new Error(`Unknown weapon definition: ${id}`);
   return weapon;
 }
-

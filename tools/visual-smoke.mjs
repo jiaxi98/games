@@ -96,6 +96,7 @@ try {
         geometries: renderer.info.memory.geometries,
         textures: renderer.info.memory.textures,
       },
+      frameTiming: context.app.getPerformanceSnapshot?.() ?? null,
       battle: context.app.battlefield?.getState?.() ?? null,
       narrative: context.app.presentation?.narrative?.getState?.() ?? null,
     };

@@ -69,5 +69,26 @@ describe('Combatant', () => {
     expect(result.damage).toBeGreaterThan(0);
     expect(target.staggerRemaining).toBeGreaterThan(0);
   });
-});
 
+  it('preserves contact metadata on resolved impacts', () => {
+    const target = new Combatant({ maxHealth: 100 });
+    const point = new Vector3(0.1, 1.3, -0.2);
+    const result = target.receiveImpact({
+      damage: 25,
+      damageType: DamageType.CUT,
+      direction: new Vector3(0, 0, -1),
+      point,
+      hitZone: 'torso',
+      material: 'metal',
+      surface: 'plate',
+      severity: 0.7,
+    });
+
+    expect(result.point).toBe(point);
+    expect(result.hitZone).toBe('torso');
+    expect(result.material).toBe('metal');
+    expect(result.surface).toBe('plate');
+    expect(result.severity).toBeCloseTo(0.7);
+    expect(result.outcome).toBe('hit');
+  });
+});
