@@ -32,7 +32,7 @@ export function createSoldierActor(options = {}) {
 export function createCaptainActor(options = {}) {
   return new SoldierActor({
     role: SoldierRole.CAPTAIN,
-    maxHealth: 132,
+    maxHealth: 112,
     maxStamina: 125,
     armor: {
       [DamageType.CUT]: 0.46,
