@@ -84,7 +84,6 @@ export function install(context) {
       recoil: payload.outcome === 'parried' ? 1.5 : 1,
     });
     events.emit('combat:impact', payload);
-    events.emit('combat:hit', payload);
     if (event.result.killed) events.emit('combat:kill', payload);
   };
   const emitSwing = (event) => events.emit('combat:swing', {
