@@ -42,7 +42,11 @@ export function install(context) {
     getForward: () => camera.getWorldDirection(_forward),
   });
   const rig = createFirstPersonWeaponRig({ weapon: 'longsword' });
-  scene.add(rig.object3d);
+  // The weapon is view-space presentation. Parenting it to the camera keeps
+  // the rig stable under head bob and prevents it from clipping through world
+  // geometry because of a one-frame camera/world transform mismatch.
+  camera.add(rig.object3d);
+  if (!camera.parent) scene.add(camera);
 
   let unregisterExternal = null;
   const connectBattlefield = (simulation) => {
@@ -115,8 +119,6 @@ export function install(context) {
       if (input.wasPressed('guard')) controller.beginBlock();
       if (input.wasReleased('guard')) controller.endBlock();
       controller.update(dt);
-      rig.object3d.position.copy(camera.position);
-      rig.object3d.quaternion.copy(camera.quaternion);
       rig.update(dt, controller.getPose());
     },
     dispose() {

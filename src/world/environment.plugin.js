@@ -12,7 +12,10 @@ export function install(context) {
   const disposers = [];
 
   context.removeFallbackEnvironment();
-  context.world = world;
+  // `context` is intentionally frozen by the application foundation. Expose
+  // mutable extension-owned services on the application, matching combat,
+  // battlefield, and presentation plugins.
+  context.app.world = world;
   disposers.push(context.setGroundHeightProvider(world.sampleHeight));
 
   world.colliders.forEach((box, index) => {
@@ -68,7 +71,7 @@ export function install(context) {
       });
     },
     dispose() {
-      if (context.world === world) delete context.world;
+      if (context.app.world === world) delete context.app.world;
       for (const dispose of disposers.splice(0).reverse()) dispose?.();
       world.dispose();
     },

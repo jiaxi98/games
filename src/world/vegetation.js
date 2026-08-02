@@ -9,7 +9,7 @@ import {
 
 function isExcluded(x, z, roadPoints) {
   if (distanceToPolyline2D(x, z, roadPoints) < 10) return true;
-  if (Math.hypot(x, z - 220) < 75) return true;
+  if (Math.abs(x) < 64 && z > 196 && z < 245) return true;
   if (Math.hypot(x - 104, z - 18) < 37) return true;
   if (Math.hypot(x + 42, z - 34) < 55) return true;
   if (Math.abs(z + 174) < 16 && Math.abs(x) < 46) return true;
@@ -34,6 +34,44 @@ function createTreeMeshes(materials, count, quality) {
   return { trunks, crowns };
 }
 
+function createEdgeScrub({ materials, sampleHeight, random, quality }) {
+  const count = quality === 'low' ? 90 : quality === 'medium' ? 180 : 320;
+  const geometry = new THREE.IcosahedronGeometry(0.72, 0);
+  const scrub = new THREE.InstancedMesh(geometry, materials.leafDry, count);
+  scrub.name = 'InstancedBattlefieldEdgeScrub';
+  scrub.castShadow = quality === 'high';
+  scrub.receiveShadow = true;
+  const dummy = new THREE.Object3D();
+  for (let index = 0; index < count; index += 1) {
+    const side = index % 2 ? 1 : -1;
+    const nearOpening = index < Math.min(count, 48);
+    const x = side * (
+      nearOpening
+        ? randomRange(random, 66, 92)
+        : randomRange(random, 48, 235)
+    );
+    const z = nearOpening
+      ? randomRange(random, 205, 286)
+      : randomRange(random, -235, 210);
+    const y = sampleHeight(x, z);
+    setInstanceTransform(scrub, index, {
+      position: new THREE.Vector3(x, y + 0.45, z),
+      rotation: new THREE.Euler(
+        randomSigned(random, 0.12),
+        randomRange(random, 0, Math.PI * 2),
+        randomSigned(random, 0.12),
+      ),
+      scale: new THREE.Vector3(
+        randomRange(random, 0.7, 1.65),
+        randomRange(random, 0.55, 1.18),
+        randomRange(random, 0.72, 1.55),
+      ),
+    }, dummy);
+  }
+  scrub.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  return scrub;
+}
+
 export function createVegetation({
   materials,
   sampleHeight,
@@ -44,12 +82,43 @@ export function createVegetation({
   const group = new THREE.Group();
   group.name = 'Vegetation';
   const random = createRng(seed + 2200);
-  const treeCount = quality === 'low' ? 70 : quality === 'medium' ? 135 : 220;
+  const treeCount = quality === 'low' ? 90 : quality === 'medium' ? 170 : 280;
   const { trunks, crowns } = createTreeMeshes(materials, treeCount, quality);
   const dummy = new THREE.Object3D();
+  const openingFrames = [
+    [-78, 257], [-70, 275], [-89, 230], [-105, 248],
+    [78, 257], [70, 275], [89, 230], [105, 248],
+    [-96, 188], [-118, 168], [96, 188], [118, 168],
+  ];
 
   let placed = 0;
   let attempts = 0;
+  openingFrames.forEach(([x, z], index) => {
+    if (placed >= treeCount) return;
+    const scale = 0.8 + (index % 4) * 0.11;
+    const y = sampleHeight(x, z);
+    const rotation = new THREE.Euler(
+      (index % 3 - 1) * 0.02,
+      index * 1.73,
+      (index % 2 ? 1 : -1) * 0.025,
+    );
+    const treeScale = new THREE.Vector3(
+      scale * (index % 2 ? 0.92 : 1.04),
+      scale * (1.08 + (index % 3) * 0.09),
+      scale,
+    );
+    setInstanceTransform(trunks, placed, {
+      position: new THREE.Vector3(x, y, z),
+      rotation,
+      scale: treeScale,
+    }, dummy);
+    setInstanceTransform(crowns, placed, {
+      position: new THREE.Vector3(x, y, z),
+      rotation,
+      scale: treeScale,
+    }, dummy);
+    placed += 1;
+  });
   while (placed < treeCount && attempts < treeCount * 30) {
     attempts += 1;
     const x = randomSigned(random, 295);
@@ -82,9 +151,15 @@ export function createVegetation({
   trunks.count = placed;
   crowns.count = placed;
   group.add(trunks, crowns);
+  group.add(createEdgeScrub({
+    materials,
+    sampleHeight,
+    random,
+    quality,
+  }));
 
   // Trampled grain survives on the flanks, leaving the combat corridor visually clear.
-  const grainCount = quality === 'low' ? 450 : quality === 'medium' ? 950 : 1700;
+  const grainCount = quality === 'low' ? 550 : quality === 'medium' ? 1150 : 2050;
   const bladeGeometry = new THREE.ConeGeometry(0.05, 1.15, 3);
   bladeGeometry.translate(0, 0.55, 0);
   const grain = new THREE.InstancedMesh(bladeGeometry, materials.straw, grainCount);
@@ -136,6 +211,18 @@ export function createOldOak({ materials, sampleHeight, position }) {
   trunk.receiveShadow = true;
   group.add(trunk);
 
+  const rootGeometry = new THREE.ConeGeometry(0.62, 4.2, 6);
+  for (let index = 0; index < 6; index += 1) {
+    const root = new THREE.Mesh(rootGeometry, materials.bark);
+    root.name = 'OakRootFlare';
+    const angle = (index / 6) * Math.PI * 2;
+    root.position.set(Math.cos(angle) * 1.25, 0.38, Math.sin(angle) * 1.25);
+    root.rotation.set(Math.PI * 0.5, 0, -angle);
+    root.scale.set(0.7, 1, 0.55);
+    root.castShadow = true;
+    group.add(root);
+  }
+
   const branches = [
     [-2.4, 8.2, 0.7, 5.5, -0.9],
     [2.2, 8.9, -0.4, 6.3, 0.85],
@@ -169,5 +256,15 @@ export function createOldOak({ materials, sampleHeight, position }) {
     crown.castShadow = true;
     group.add(crown);
   });
+
+  const deadBranch = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.38, 6.4, 6),
+    materials.bark,
+  );
+  deadBranch.name = 'OakDeadBranch';
+  deadBranch.position.set(-2.1, 10.4, -1.8);
+  deadBranch.rotation.set(-0.28, 0.22, -1.02);
+  deadBranch.castShadow = true;
+  group.add(deadBranch);
   return group;
 }

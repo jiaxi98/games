@@ -11,6 +11,9 @@ const DEFAULT_BINDINGS = Object.freeze({
   interact: ['KeyE'],
   attack: ['Mouse0'],
   guard: ['Mouse2'],
+  commandRally: ['KeyQ', 'Digit1'],
+  commandBrace: ['KeyR', 'Digit2'],
+  commandAdvance: ['KeyF', 'Digit3'],
 });
 
 export class InputManager {

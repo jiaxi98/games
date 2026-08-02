@@ -5,3 +5,4 @@ playwright-report/
 test-results/
 .npm-cache/
 *.log
+artifacts/

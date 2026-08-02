@@ -8,12 +8,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "visual:smoke": "node tools/visual-smoke.mjs"
   },
   "dependencies": {
     "three": "^0.179.1"
   },
   "devDependencies": {
+    "playwright": "^1.62.1",
     "vite": "^7.1.2",
     "vitest": "^3.2.4"
   }

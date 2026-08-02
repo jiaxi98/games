@@ -7,6 +7,7 @@ const extensionLoaders = import.meta.glob([
   './rendering/**/*.plugin.js',
   './combat/**/*.plugin.js',
   './ai/**/*.plugin.js',
+  './gameplay/**/*.plugin.js',
   './ui/**/*.plugin.js',
   './audio/**/*.plugin.js',
 ]);

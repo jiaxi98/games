@@ -1,0 +1,79 @@
+import { describe, expect, it } from 'vitest';
+import {
+  BoxGeometry,
+  CylinderGeometry,
+} from 'three';
+import { createFirstPersonWeaponRig } from '../../src/combat/FirstPersonWeaponRig.js';
+import { WeaponState } from '../../src/combat/MeleeCombatController.js';
+
+describe('FirstPersonWeaponRig', () => {
+  it('builds a compact layered sword and grounded arm equipment', () => {
+    const rig = createFirstPersonWeaponRig();
+    const weaponRoot = rig.object3d.getObjectByName('WeaponRoot');
+
+    expect(rig.object3d.name).toBe('FirstPersonWeaponRig');
+    expect(weaponRoot).toBeTruthy();
+    expect(rig.object3d.getObjectByName('SwordBlade')).toBeTruthy();
+    expect(rig.object3d.getObjectByName('BladeFuller')).toBeTruthy();
+    expect(rig.object3d.getObjectByName('Crossguard')).toBeTruthy();
+    expect(rig.object3d.getObjectByName('RightArm:Vambrace')).toBeTruthy();
+    expect(rig.object3d.getObjectByName('LeftArm:Cuff')).toBeTruthy();
+
+    const oversizedFlatMeshes = [];
+    rig.object3d.traverse((object) => {
+      if (!(object.geometry instanceof BoxGeometry)) return;
+      const { width = 0, height = 0, depth = 0 } = object.geometry.parameters;
+      const dimensions = [width, height, depth].sort((a, b) => b - a);
+      if (dimensions[0] > 1.25 && dimensions[1] > 0.25) oversizedFlatMeshes.push(object.name);
+    });
+    expect(oversizedFlatMeshes).toEqual([]);
+
+    rig.dispose();
+  });
+
+  it('keeps neutral, block, cut, and thrust poses distinct and legible', () => {
+    const rig = createFirstPersonWeaponRig();
+    const weaponRoot = rig.object3d.getObjectByName('WeaponRoot');
+
+    rig.update(0, { state: WeaponState.IDLE, progress: 0 });
+    const neutral = {
+      x: weaponRoot.rotation.x,
+      y: weaponRoot.rotation.y,
+      z: weaponRoot.rotation.z,
+      depth: weaponRoot.position.z,
+    };
+
+    rig.update(0, { state: WeaponState.BLOCKING, progress: 1 });
+    expect(Math.abs(weaponRoot.rotation.z - neutral.z)).toBeGreaterThan(0.6);
+    expect(Math.abs(weaponRoot.position.x)).toBeLessThan(0.1);
+
+    rig.update(0, {
+      state: WeaponState.ACTIVE,
+      progress: 0.8,
+      attack: { arc: [-1.05, 0.62] },
+    });
+    expect(Math.abs(weaponRoot.rotation.y - neutral.y)).toBeGreaterThan(0.15);
+
+    rig.update(0, {
+      state: WeaponState.ACTIVE,
+      progress: 1,
+      attack: { thrust: true, arc: [0, 0] },
+    });
+    expect(weaponRoot.position.z).toBeLessThan(neutral.depth - 0.5);
+    expect(Math.abs(weaponRoot.rotation.z)).toBeLessThan(0.08);
+
+    rig.dispose();
+  });
+
+  it('builds a tapered spear with grip, socket, and head', () => {
+    const rig = createFirstPersonWeaponRig({ weapon: 'spear' });
+
+    expect(rig.object3d.getObjectByName('SpearShaft')?.geometry).toBeInstanceOf(CylinderGeometry);
+    expect(rig.object3d.getObjectByName('SpearGrip')).toBeTruthy();
+    expect(rig.object3d.getObjectByName('SpearSocket')).toBeTruthy();
+    expect(rig.object3d.getObjectByName('SpearHead')).toBeTruthy();
+    expect(rig.object3d.getObjectByName('SwordBlade')).toBeFalsy();
+
+    rig.dispose();
+  });
+});

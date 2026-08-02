@@ -72,6 +72,33 @@ function createCart(materials, loaded = true) {
   return group;
 }
 
+function createSupplyStack(materials, index) {
+  const group = new THREE.Group();
+  group.name = 'BaggageSupplyStack';
+  const lower = box(1.6, 1.05, 1.25, materials.timberLight, 'SupplyCrate');
+  lower.position.y = 0.52;
+  lower.rotation.y = (index % 3 - 1) * 0.08;
+  group.add(lower);
+  if (index % 2 === 0) {
+    const upper = box(1.2, 0.82, 1.05, materials.timber, 'SupplyCrate');
+    upper.position.set(0.12, 1.43, -0.05);
+    upper.rotation.y = -lower.rotation.y * 1.7;
+    group.add(upper);
+  } else {
+    const sack = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.42, 0.68, 2, 6),
+      materials.canvasDark,
+    );
+    sack.name = 'SupplySack';
+    sack.position.set(0.08, 1.25, 0);
+    sack.rotation.z = Math.PI * 0.5;
+    sack.scale.set(1, 0.86, 0.72);
+    sack.castShadow = true;
+    group.add(sack);
+  }
+  return group;
+}
+
 function createMantlet(materials) {
   const group = new THREE.Group();
   group.name = 'BaggageMantlet';
@@ -97,18 +124,35 @@ export function createBaggageEmbankment({
   group.name = 'AngloGasconBaggageLine';
   group.position.set(position.x, sampleHeight(position.x, position.z), position.z);
 
+  // A chain of low, faceted berms reads as heaped earth without becoming the
+  // giant flat-sided polygon that previously dominated the opening view.
+  const bermGeometry = new THREE.DodecahedronGeometry(1, 0);
+  const earthworks = new THREE.InstancedMesh(bermGeometry, materials.soil, 12);
+  earthworks.name = 'BaggageEmbankment';
+  earthworks.receiveShadow = true;
+  earthworks.castShadow = true;
+  earthworks.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  const dummy = new THREE.Object3D();
+  let bermIndex = 0;
   [-1, 1].forEach((side) => {
-    const earthwork = new THREE.Mesh(
-      new THREE.CylinderGeometry(18, 21, 4.6, 5),
-      materials.soil,
-    );
-    earthwork.name = 'BaggageEmbankment';
-    earthwork.position.set(side * 34, 0.25, 4);
-    earthwork.scale.set(1.45, 1, 0.62);
-    earthwork.rotation.y = Math.PI * 0.5;
-    earthwork.receiveShadow = true;
-    group.add(earthwork);
+    for (let index = 0; index < 6; index += 1) {
+      const x = side * (13 + index * 9);
+      const z = 4 + (index % 2 ? 0.8 : -0.4);
+      const worldX = position.x + x;
+      const worldZ = position.z + z;
+      setInstanceTransform(earthworks, bermIndex, {
+        position: new THREE.Vector3(
+          x,
+          sampleHeight(worldX, worldZ) - group.position.y + 1.05,
+          z,
+        ),
+        rotation: new THREE.Euler(0, (index % 3 - 1) * 0.12, 0),
+        scale: new THREE.Vector3(6.6, 1.65 + (index % 2) * 0.25, 5.6),
+      }, dummy);
+      bermIndex += 1;
+    }
   });
+  group.add(earthworks);
 
   const placements = [
     [-44, 2, -0.05, true],
@@ -122,7 +166,7 @@ export function createBaggageEmbankment({
     const cart = createCart(materials, loaded);
     const worldX = position.x + x;
     const worldZ = position.z + z;
-    cart.position.set(x, sampleHeight(worldX, worldZ) - group.position.y + 1.8, z);
+    cart.position.set(x, sampleHeight(worldX, worldZ) - group.position.y + 2.45, z);
     cart.rotation.y = yaw + (index % 2 ? 0.03 : -0.03);
     group.add(cart);
   });
@@ -146,12 +190,43 @@ export function createBaggageEmbankment({
     const z = 7 + Math.floor(index / 5) * 4;
     barrel.position.set(
       x,
-      sampleHeight(position.x + x, position.z + z) - group.position.y + 0.68,
+      sampleHeight(position.x + x, position.z + z) - group.position.y
+        + (Math.abs(x) > 10 ? 2.45 : 0.68),
       z,
     );
     barrel.rotation.z = index % 3 === 0 ? Math.PI * 0.5 : 0;
     group.add(barrel);
   }
+
+  // Tall stakes make the traversable center gap legible from first person.
+  [-1, 1].forEach((side) => {
+    const standard = createStandard({
+      materials,
+      sampleHeight,
+      position: new THREE.Vector3(position.x + side * 10.5, 0, position.z - 2.5),
+      color: side < 0 ? 'blue' : 'ochre',
+      height: 8.8,
+      name: 'BaggageGateStandard',
+    });
+    standard.position.sub(group.position);
+    standard.rotation.y = side * 0.08;
+    group.add(standard);
+  });
+
+  const supplyPlacements = [
+    [-54, 10], [-48, 13], [-38, 9], [-25, 12],
+    [25, 11], [37, 8], [47, 13], [55, 10],
+  ];
+  supplyPlacements.forEach(([x, z], index) => {
+    const stack = createSupplyStack(materials, index);
+    stack.position.set(
+      x,
+      sampleHeight(position.x + x, position.z + z) - group.position.y + 2.45,
+      z,
+    );
+    stack.rotation.y = (index % 4 - 1.5) * 0.17;
+    group.add(stack);
+  });
 
   return {
     group,
@@ -260,6 +335,12 @@ function createMillWheel(materials) {
     const spoke = box(7.8, 0.13, 0.18, materials.timberLight, 'MillWheelSpoke');
     spoke.rotation.z = (index / 10) * Math.PI;
     group.add(spoke);
+
+    const paddle = box(1.3, 0.42, 0.32, materials.timber, 'MillWheelPaddle');
+    const angle = (index / 10) * Math.PI * 2;
+    paddle.position.set(Math.cos(angle) * 4.08, Math.sin(angle) * 4.08, 0);
+    paddle.rotation.z = angle;
+    group.add(paddle);
   }
   return group;
 }
@@ -295,6 +376,10 @@ export function createBurningMill({
   wheel.position.set(-6.75, 4.9, 0);
   wheel.rotation.y = Math.PI * 0.5;
   group.add(wheel);
+  const axle = cylinder(0.3, 0.3, 2.2, 8, materials.charcoal, 'MillWheelAxle');
+  axle.position.set(-6.8, 4.9, 0);
+  axle.rotation.z = Math.PI * 0.5;
+  group.add(axle);
 
   const door = box(2.2, 3.3, 0.25, materials.charcoal, 'MillDoorShadow');
   door.position.set(1.8, 1.65, 5.58);
@@ -305,6 +390,16 @@ export function createBurningMill({
   charredBeam.rotation.z = -0.65;
   charredBeam.rotation.y = 0.2;
   group.add(charredBeam);
+
+  [-1, 1].forEach((side) => {
+    const gableBrace = box(0.34, 6.2, 0.34, materials.charcoal, 'CharredGableBrace');
+    gableBrace.position.set(side * 4.25, 10.4, 5.45);
+    gableBrace.rotation.z = side * -0.52;
+    group.add(gableBrace);
+  });
+  const roofRidge = box(0.36, 0.36, 12.2, materials.charcoal, 'MillRoofRidge');
+  roofRidge.position.set(0, 16.65, 0);
+  group.add(roofRidge);
 
   const fireSockets = [
     new THREE.Vector3(-3.3, 11.8, 3.6),
@@ -385,6 +480,25 @@ export function createStoneBridgeAndFord({
   const gateBeam = box(13, 1.3, 2.2, materials.timber, 'BridgeGateBeam');
   gateBeam.position.set(0, 10.2, -13.2);
   group.add(gateBeam);
+  gatePosts.forEach((post, index) => {
+    const cap = new THREE.Mesh(
+      new THREE.ConeGeometry(1.65, 2.1, 4),
+      materials.limestoneDark,
+    );
+    cap.name = 'BridgeGateFinial';
+    cap.position.set(post.position.x, 11.78, post.position.z);
+    cap.rotation.y = Math.PI * 0.25;
+    cap.castShadow = true;
+    group.add(cap);
+
+    const brace = box(0.34, 5.8, 0.34, materials.timber, 'BridgeGateBrace');
+    brace.position.set(index === 0 ? -3.2 : 3.2, 8.1, -12.55);
+    brace.rotation.z = index === 0 ? -0.72 : 0.72;
+    group.add(brace);
+  });
+  const coping = box(15.1, 0.38, 1.35, materials.limestone, 'BridgeGateCoping');
+  coping.position.set(0, 11.05, -13.2);
+  group.add(coping);
 
   // Ford stones form a second, exposed crossing east of the bridge.
   for (let row = 0; row < 8; row += 1) {
@@ -433,7 +547,7 @@ export function createFieldDressing({
   const group = new THREE.Group();
   group.name = 'BattlefieldDressing';
   const random = createRng(seed + 1200);
-  const count = quality === 'low' ? 45 : quality === 'medium' ? 85 : 140;
+  const count = quality === 'low' ? 60 : quality === 'medium' ? 110 : 180;
   const dummy = new THREE.Object3D();
 
   const stakeGeometry = new THREE.CylinderGeometry(0.055, 0.095, 2.4, 5);
@@ -472,11 +586,11 @@ export function createFieldDressing({
     const shieldX = x + randomSigned(random, 3.5);
     const shieldZ = z + randomSigned(random, 3.5);
     setInstanceTransform(shields, index, {
-      position: new THREE.Vector3(shieldX, sampleHeight(shieldX, shieldZ) + 0.15, shieldZ),
+      position: new THREE.Vector3(shieldX, sampleHeight(shieldX, shieldZ) + 0.1, shieldZ),
       rotation: new THREE.Euler(
-        Math.PI * 0.5 + randomSigned(random, 0.24),
+        randomSigned(random, 0.12),
         randomRange(random, 0, Math.PI),
-        randomRange(random, 0, Math.PI),
+        randomSigned(random, 0.12),
       ),
       scale: new THREE.Vector3(
         randomRange(random, 0.75, 1.1),
@@ -500,6 +614,65 @@ export function createFieldDressing({
 
   [stakes, shields, spears].forEach((mesh) => {
     mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    group.add(mesh);
+  });
+
+  // Low horizontal forms and abandoned helmets imply losses without creating
+  // collision clutter or relying on graphic/proprietary assets.
+  const casualtyCount = quality === 'low' ? 14 : quality === 'medium' ? 26 : 42;
+  const blueCount = Math.ceil(casualtyCount * 0.5);
+  const redCount = casualtyCount - blueCount;
+  const casualtyGeometry = new THREE.CapsuleGeometry(0.3, 0.78, 2, 6);
+  const blueCasualties = new THREE.InstancedMesh(casualtyGeometry, materials.blueCloth, blueCount);
+  const redCasualties = new THREE.InstancedMesh(casualtyGeometry, materials.redCloth, redCount);
+  blueCasualties.name = 'FallenAngloGasconSilhouettes';
+  redCasualties.name = 'FallenFrenchSilhouettes';
+  const helmetGeometry = new THREE.ConeGeometry(0.28, 0.34, 6);
+  const helmets = new THREE.InstancedMesh(helmetGeometry, materials.iron, casualtyCount);
+  helmets.name = 'AbandonedHelmets';
+  let blueIndex = 0;
+  let redIndex = 0;
+  for (let index = 0; index < casualtyCount; index += 1) {
+    const cluster = index % 4;
+    const clusterZ = [132, 68, -18, -94][cluster];
+    let x = randomSigned(random, 54 - cluster * 4);
+    if (Math.abs(x) < 7.5) x += Math.sign(x || randomSigned(random)) * 9;
+    const z = clusterZ + randomSigned(random, 18);
+    const y = sampleHeight(x, z);
+    const target = index % 2 === 0 ? blueCasualties : redCasualties;
+    const targetIndex = index % 2 === 0 ? blueIndex++ : redIndex++;
+    setInstanceTransform(target, targetIndex, {
+      position: new THREE.Vector3(x, y + 0.28, z),
+      rotation: new THREE.Euler(
+        randomSigned(random, 0.16),
+        randomRange(random, 0, Math.PI * 2),
+        Math.PI * 0.5 + randomSigned(random, 0.15),
+      ),
+      scale: new THREE.Vector3(
+        randomRange(random, 0.86, 1.12),
+        randomRange(random, 0.88, 1.2),
+        randomRange(random, 0.82, 1.08),
+      ),
+    }, dummy);
+    const helmetX = x + randomSigned(random, 1.25);
+    const helmetZ = z + randomSigned(random, 1.25);
+    setInstanceTransform(helmets, index, {
+      position: new THREE.Vector3(
+        helmetX,
+        sampleHeight(helmetX, helmetZ) + 0.18,
+        helmetZ,
+      ),
+      rotation: new THREE.Euler(
+        Math.PI * 0.5 + randomSigned(random, 0.35),
+        randomRange(random, 0, Math.PI * 2),
+        randomSigned(random, 0.3),
+      ),
+      scale: new THREE.Vector3(1, randomRange(random, 0.78, 1.08), 1),
+    }, dummy);
+  }
+  [blueCasualties, redCasualties, helmets].forEach((mesh) => {
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    mesh.castShadow = quality === 'high';
     group.add(mesh);
   });
 
@@ -560,49 +733,180 @@ export function createDistantBattleBelts({
   const group = new THREE.Group();
   group.name = 'DistantBattleBelts';
   const random = createRng(seed + 4900);
-  const rankCount = quality === 'low' ? 48 : quality === 'medium' ? 90 : 145;
+  const rankCount = quality === 'low' ? 72 : quality === 'medium' ? 125 : 190;
   const bodyGeometry = new THREE.CapsuleGeometry(0.3, 0.95, 2, 5);
   const redRanks = new THREE.InstancedMesh(bodyGeometry, materials.redCloth, rankCount);
   const blueRanks = new THREE.InstancedMesh(bodyGeometry, materials.blueCloth, rankCount);
   redRanks.name = 'FarFrenchRanks';
   blueRanks.name = 'FarAngloGasconRanks';
   const dummy = new THREE.Object3D();
+  const spearGeometry = new THREE.CylinderGeometry(0.018, 0.026, 3.4, 5);
+  const farSpears = new THREE.InstancedMesh(
+    spearGeometry,
+    materials.timberLight,
+    rankCount * 2,
+  );
+  farSpears.name = 'FarRankSpearForest';
+  let spearIndex = 0;
+  const layouts = {
+    blue: [
+      { x: -91, z: 58, frontage: 13, heading: 0.03 },
+      { x: -151, z: -48, frontage: 15, heading: 0.16 },
+      { x: -92, z: -151, frontage: 12, heading: -0.08 },
+    ],
+    red: [
+      { x: 79, z: -38, frontage: 14, heading: Math.PI - 0.04 },
+      { x: 158, z: -104, frontage: 15, heading: Math.PI - 0.18 },
+      { x: 75, z: -208, frontage: 12, heading: Math.PI + 0.08 },
+    ],
+  };
 
-  for (let index = 0; index < rankCount; index += 1) {
-    [-1, 1].forEach((side) => {
-      const x = side * randomRange(random, 105, 235);
-      const z = randomRange(random, -170, 95);
+  function placeRanks(mesh, formations) {
+    for (let index = 0; index < rankCount; index += 1) {
+      const formation = formations[index % formations.length];
+      const slot = Math.floor(index / formations.length);
+      const row = Math.floor(slot / formation.frontage);
+      const column = slot % formation.frontage;
+      const x = formation.x
+        + (column - (formation.frontage - 1) * 0.5) * 1.42
+        + randomSigned(random, 0.22);
+      const z = formation.z + row * 1.46 + randomSigned(random, 0.2);
       const y = sampleHeight(x, z);
-      const mesh = side < 0 ? blueRanks : redRanks;
       setInstanceTransform(mesh, index, {
         position: new THREE.Vector3(x, y + 1.2, z),
-        rotation: new THREE.Euler(0, randomRange(random, -0.5, 0.5), 0),
+        rotation: new THREE.Euler(0, formation.heading + randomSigned(random, 0.08), 0),
         scale: new THREE.Vector3(
-          randomRange(random, 0.82, 1.05),
-          randomRange(random, 0.9, 1.12),
-          randomRange(random, 0.82, 1.05),
+          randomRange(random, 0.86, 1.04),
+          randomRange(random, 0.94, 1.12),
+          randomRange(random, 0.86, 1.04),
         ),
+      }, dummy);
+      if (index % 5 !== 0) {
+        setInstanceTransform(farSpears, spearIndex, {
+          position: new THREE.Vector3(x, y + 1.92, z),
+          rotation: new THREE.Euler(
+            randomSigned(random, 0.08),
+            formation.heading,
+            randomSigned(random, 0.08),
+          ),
+          scale: new THREE.Vector3(1, randomRange(random, 0.88, 1.08), 1),
+        }, dummy);
+        spearIndex += 1;
+      }
+    }
+  }
+  placeRanks(blueRanks, layouts.blue);
+  placeRanks(redRanks, layouts.red);
+  redRanks.count = rankCount;
+  blueRanks.count = rankCount;
+  farSpears.count = spearIndex;
+  [redRanks, blueRanks, farSpears].forEach((mesh) => {
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    mesh.castShadow = false;
+    group.add(mesh);
+  });
+
+  const cavalryPerSide = quality === 'low' ? 6 : quality === 'medium' ? 10 : 16;
+  const horseGeometry = new THREE.CapsuleGeometry(0.44, 1.35, 2, 6);
+  horseGeometry.rotateZ(Math.PI * 0.5);
+  const horseBodies = new THREE.InstancedMesh(
+    horseGeometry,
+    materials.charcoal,
+    cavalryPerSide * 2,
+  );
+  horseBodies.name = 'FarCavalryHorses';
+  const riderGeometry = new THREE.CapsuleGeometry(0.22, 0.62, 2, 5);
+  const blueRiders = new THREE.InstancedMesh(riderGeometry, materials.blueCloth, cavalryPerSide);
+  const redRiders = new THREE.InstancedMesh(riderGeometry, materials.redCloth, cavalryPerSide);
+  blueRiders.name = 'FarAngloGasconCavalry';
+  redRiders.name = 'FarFrenchCavalry';
+  for (let index = 0; index < cavalryPerSide; index += 1) {
+    [-1, 1].forEach((side, sideIndex) => {
+      const x = side * (184 + (index % 4) * 3.5) + randomSigned(random, 2);
+      const z = -174 + Math.floor(index / 4) * 4.2 + randomSigned(random, 1.5);
+      const y = sampleHeight(x, z);
+      const heading = side < 0 ? 0.22 : Math.PI - 0.22;
+      const horseIndex = index + sideIndex * cavalryPerSide;
+      setInstanceTransform(horseBodies, horseIndex, {
+        position: new THREE.Vector3(x, y + 1.05, z),
+        rotation: new THREE.Euler(0, heading, 0),
+        scale: new THREE.Vector3(
+          randomRange(random, 0.92, 1.12),
+          randomRange(random, 0.9, 1.08),
+          randomRange(random, 0.9, 1.05),
+        ),
+      }, dummy);
+      setInstanceTransform(side < 0 ? blueRiders : redRiders, index, {
+        position: new THREE.Vector3(x, y + 2.15, z),
+        rotation: new THREE.Euler(0, heading, randomSigned(random, 0.05)),
+        scale: new THREE.Vector3(1, randomRange(random, 0.92, 1.08), 1),
       }, dummy);
     });
   }
-  redRanks.count = rankCount;
-  blueRanks.count = rankCount;
-  group.add(redRanks, blueRanks);
+  [horseBodies, blueRiders, redRiders].forEach((mesh) => {
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    group.add(mesh);
+  });
+
+  const smokeMaterial = new THREE.MeshStandardMaterial({
+    color: 0x4b4b47,
+    roughness: 1,
+    transparent: true,
+    opacity: 0.2,
+    depthWrite: false,
+    flatShading: true,
+  });
+  const smokeCount = quality === 'low' ? 8 : quality === 'medium' ? 14 : 22;
+  const smoke = new THREE.InstancedMesh(
+    new THREE.IcosahedronGeometry(1.5, 0),
+    smokeMaterial,
+    smokeCount,
+  );
+  smoke.name = 'FarBattleSmoke';
+  for (let index = 0; index < smokeCount; index += 1) {
+    const column = index % 5;
+    const side = index % 2 ? 1 : -1;
+    const x = side * (62 + (index % 4) * 28);
+    const z = -118 - (index % 3) * 38;
+    const baseY = sampleHeight(x, z);
+    setInstanceTransform(smoke, index, {
+      position: new THREE.Vector3(
+        x + randomSigned(random, 5),
+        baseY + 5 + column * 2.4,
+        z + randomSigned(random, 5),
+      ),
+      rotation: new THREE.Euler(
+        randomSigned(random, 0.2),
+        randomRange(random, 0, Math.PI),
+        randomSigned(random, 0.2),
+      ),
+      scale: new THREE.Vector3(
+        randomRange(random, 1.2, 2.4),
+        randomRange(random, 1.6, 3.2),
+        randomRange(random, 1.2, 2.3),
+      ),
+    }, dummy);
+  }
+  smoke.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  smoke.renderOrder = 1;
+  group.add(smoke);
 
   const banners = [];
-  for (let index = 0; index < 12; index += 1) {
+  for (let index = 0; index < 18; index += 1) {
     const side = index % 2 ? 1 : -1;
-    const x = side * randomRange(random, 125, 210);
-    const z = randomRange(random, -155, 60);
+    const formations = side < 0 ? layouts.blue : layouts.red;
+    const formation = formations[index % formations.length];
+    const x = formation.x + randomSigned(random, 8);
+    const z = formation.z + randomSigned(random, 6);
     const banner = createStandard({
       materials,
       sampleHeight,
       position: new THREE.Vector3(x, 0, z),
       color: side > 0 ? 'red' : 'blue',
-      height: randomRange(random, 6, 8),
+      height: randomRange(random, 7, 9),
       name: 'FarBattleBanner',
     });
-    banner.scale.setScalar(0.72);
+    banner.scale.setScalar(0.78);
     banners.push(banner);
     group.add(banner);
   }

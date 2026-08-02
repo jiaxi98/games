@@ -49,20 +49,33 @@ const SKY_FRAGMENT_SHADER = /* glsl */`
   void main() {
     vec3 direction = normalize(vWorldPosition - cameraPosition);
     float up = direction.y;
-    float horizon = pow(1.0 - abs(up), 3.0);
-    vec3 sky = mix(horizonColor, zenithColor, smoothstep(-0.03, 0.72, up));
-    sky = mix(groundColor, sky, smoothstep(-0.22, 0.05, up));
+    float aboveHorizon = smoothstep(-0.08, 0.34, up);
+    float horizonBand = exp(-abs(up) * 5.5);
 
-    vec2 cloudUv = direction.xz / max(0.08, direction.y + 0.42);
-    float cloud = fbm(cloudUv * 1.45 + vec2(time * 0.003, 0.0));
-    cloud += fbm(cloudUv * 3.2 - vec2(time * 0.005, 0.0)) * 0.42;
-    cloud = smoothstep(0.46, 0.98, cloud) * smoothstep(-0.05, 0.42, up);
-    sky = mix(sky, vec3(0.20, 0.23, 0.25), cloud * 0.72);
+    vec3 sky = mix(horizonColor, zenithColor, smoothstep(0.0, 0.86, up));
+    sky = mix(groundColor, sky, smoothstep(-0.28, 0.035, up));
 
-    float sun = pow(max(dot(direction, normalize(sunDirection)), 0.0), 180.0);
-    float sunGlow = pow(max(dot(direction, normalize(sunDirection)), 0.0), 12.0);
-    sky += sunColor * (sun * 0.62 + sunGlow * 0.08);
-    sky = mix(sky, horizonColor, horizon * 0.2);
+    vec2 cloudUv = direction.xz / max(0.12, up + 0.5);
+    vec2 wind = vec2(time * 0.0024, time * -0.00055);
+    float broadCloud = fbm(cloudUv * 0.82 + wind);
+    float midCloud = fbm(cloudUv * 1.75 - wind * 1.35 + 9.7);
+    float fineCloud = fbm(cloudUv * 4.2 + wind * 2.1 + 31.0);
+    float cloudField = broadCloud * 0.58 + midCloud * 0.32 + fineCloud * 0.1;
+    float cloud = smoothstep(0.49, 0.73, cloudField) * aboveHorizon;
+    float cloudBody = smoothstep(0.44, 0.76, broadCloud * 0.7 + midCloud * 0.3);
+
+    vec3 cloudShadow = vec3(0.18, 0.205, 0.22);
+    vec3 cloudLight = vec3(0.42, 0.46, 0.47);
+    vec3 cloudColor = mix(cloudShadow, cloudLight, fineCloud * 0.48 + horizonBand * 0.2);
+    sky = mix(sky, cloudColor, cloud * (0.58 + cloudBody * 0.2));
+
+    float sunFacing = max(dot(direction, normalize(sunDirection)), 0.0);
+    float sun = pow(sunFacing, 480.0);
+    float sunGlow = pow(sunFacing, 18.0);
+    float silverLining = pow(sunFacing, 7.0) * cloud * (1.0 - cloudBody * 0.42);
+    sky += sunColor * (sun * 1.05 + sunGlow * 0.12 + silverLining * 0.12);
+
+    sky = mix(sky, horizonColor * 1.08, horizonBand * 0.27);
     gl_FragColor = vec4(sky, 1.0);
   }
 `;
@@ -74,10 +87,10 @@ function createSky() {
     depthWrite: false,
     fog: false,
     uniforms: {
-      zenithColor: { value: new THREE.Color(0x242b33) },
-      horizonColor: { value: new THREE.Color(0x7b8588) },
-      groundColor: { value: new THREE.Color(0x343b3a) },
-      sunColor: { value: new THREE.Color(0xe5d5b2) },
+      zenithColor: { value: new THREE.Color(0x2d3741) },
+      horizonColor: { value: new THREE.Color(0x8e9a9b) },
+      groundColor: { value: new THREE.Color(0x46504d) },
+      sunColor: { value: new THREE.Color(0xffe2ad) },
       sunDirection: { value: new THREE.Vector3(-0.42, 0.34, 0.18).normalize() },
       time: { value: 0 },
     },
@@ -95,9 +108,10 @@ function createSky() {
 }
 
 function createRain({ quality, seed }) {
-  const dropCount = quality === 'low' ? 450 : quality === 'medium' ? 900 : 1600;
+  const dropCount = quality === 'low' ? 420 : quality === 'medium' ? 760 : 1280;
   const positions = new Float32Array(dropCount * 2 * 3);
   const speeds = new Float32Array(dropCount);
+  const brightness = new Float32Array(dropCount * 2 * 3);
   const random = createRng(seed + 6100);
   for (let index = 0; index < dropCount; index += 1) {
     const x = randomSigned(random, 72);
@@ -111,14 +125,24 @@ function createRain({ quality, seed }) {
     positions[offset + 4] = y - randomRange(random, 0.7, 1.45);
     positions[offset + 5] = z + 0.06;
     speeds[index] = randomRange(random, 22, 38);
+    const dropBrightness = randomRange(random, 0.52, 1);
+    const colorOffset = index * 6;
+    brightness[colorOffset] = dropBrightness;
+    brightness[colorOffset + 1] = dropBrightness;
+    brightness[colorOffset + 2] = dropBrightness;
+    brightness[colorOffset + 3] = dropBrightness * 0.42;
+    brightness[colorOffset + 4] = dropBrightness * 0.42;
+    brightness[colorOffset + 5] = dropBrightness * 0.42;
   }
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(brightness, 3));
   const material = new THREE.LineBasicMaterial({
-    color: 0xaebcc5,
+    color: 0xc7d9e1,
+    vertexColors: true,
     transparent: true,
-    opacity: 0.24,
+    opacity: 0.32,
     depthWrite: false,
     blending: THREE.NormalBlending,
   });
@@ -154,7 +178,7 @@ function createRain({ quality, seed }) {
 }
 
 function createMist({ quality, seed }) {
-  const count = quality === 'low' ? 80 : quality === 'medium' ? 150 : 260;
+  const count = quality === 'low' ? 72 : quality === 'medium' ? 125 : 190;
   const positions = new Float32Array(count * 3);
   const scales = new Float32Array(count);
   const random = createRng(seed + 6300);
@@ -173,8 +197,8 @@ function createMist({ quality, seed }) {
     depthWrite: false,
     blending: THREE.NormalBlending,
     uniforms: {
-      color: { value: new THREE.Color(0x9ba5a3) },
-      opacity: { value: 0.105 },
+      color: { value: new THREE.Color(0xb3bfbc) },
+      opacity: { value: 0.082 },
       time: { value: 0 },
     },
     vertexShader: /* glsl */`
@@ -187,7 +211,7 @@ function createMist({ quality, seed }) {
         vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
         gl_PointSize = mistScale * (210.0 / max(1.0, -mvPosition.z));
         gl_Position = projectionMatrix * mvPosition;
-        vFade = smoothstep(260.0, 35.0, -mvPosition.z);
+        vFade = 1.0 - smoothstep(35.0, 260.0, -mvPosition.z);
       }
     `,
     fragmentShader: /* glsl */`
@@ -197,7 +221,7 @@ function createMist({ quality, seed }) {
       void main() {
         vec2 p = gl_PointCoord - 0.5;
         float distance = length(p * vec2(1.0, 2.4));
-        float alpha = smoothstep(0.5, 0.0, distance) * opacity * vFade;
+        float alpha = (1.0 - smoothstep(0.08, 0.5, distance)) * opacity * vFade;
         gl_FragColor = vec4(color, alpha);
       }
     `,
@@ -246,7 +270,7 @@ function createSmokeEmitter({
     depthWrite: false,
     uniforms: {
       color: { value: new THREE.Color(color) },
-      opacity: { value: 0.28 },
+      opacity: { value: 0.34 },
     },
     vertexShader: /* glsl */`
       attribute float size;
@@ -255,7 +279,7 @@ function createSmokeEmitter({
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
         gl_PointSize = size * (240.0 / max(1.0, -mvPosition.z));
         gl_Position = projectionMatrix * mvPosition;
-        vDepth = smoothstep(300.0, 25.0, -mvPosition.z);
+        vDepth = 1.0 - smoothstep(25.0, 300.0, -mvPosition.z);
       }
     `,
     fragmentShader: /* glsl */`
@@ -265,8 +289,9 @@ function createSmokeEmitter({
       void main() {
         vec2 p = gl_PointCoord - 0.5;
         float d = length(p);
-        float cloud = smoothstep(0.5, 0.08, d);
-        gl_FragColor = vec4(color, cloud * opacity * vDepth);
+        float core = 1.0 - smoothstep(0.05, 0.5, d);
+        float detail = mix(0.78, 1.0, fract(sin(dot(gl_PointCoord, vec2(41.7, 289.3))) * 43758.5453));
+        gl_FragColor = vec4(color, core * detail * opacity * vDepth);
       }
     `,
   });
@@ -276,7 +301,7 @@ function createSmokeEmitter({
   points.name = 'ProceduralBattleSmoke';
   points.position.copy(position);
   points.renderOrder = 4;
-  material.uniforms.opacity.value = 0.28;
+  material.uniforms.opacity.value = 0.34;
 
   function respawn(index, initial = false) {
     ages[index] = initial ? randomRange(random, 0, life[index]) : 0;
@@ -300,10 +325,11 @@ function createSmokeEmitter({
           continue;
         }
         const normalizedAge = ages[index] / life[index];
+        const fade = Math.sin(normalizedAge * Math.PI);
         positions[index * 3] += drifts[index].x * delta;
         positions[index * 3 + 1] += drifts[index].y * delta;
         positions[index * 3 + 2] += drifts[index].z * delta;
-        sizes[index] = THREE.MathUtils.lerp(7, 28, normalizedAge);
+        sizes[index] = THREE.MathUtils.lerp(7, 28, normalizedAge) * (0.62 + fade * 0.38);
       }
       geometry.attributes.position.needsUpdate = true;
       geometry.attributes.size.needsUpdate = true;
@@ -325,17 +351,17 @@ export function createAtmosphere({
     background: scene.background,
     fog: scene.fog,
   };
-  scene.background = new THREE.Color(0x4e585d);
-  scene.fog = new THREE.FogExp2(0x667174, quality === 'low' ? 0.0062 : 0.0053);
+  scene.background = new THREE.Color(0x667276);
+  scene.fog = new THREE.FogExp2(0x788386, quality === 'low' ? 0.0055 : 0.00455);
 
   const sky = createSky();
   group.add(sky);
 
-  const hemisphere = new THREE.HemisphereLight(0xa9b6c0, 0x393327, 1.65);
+  const hemisphere = new THREE.HemisphereLight(0xc0ced5, 0x4a4031, 2.15);
   hemisphere.name = 'SlateHemisphereLight';
   group.add(hemisphere);
 
-  const key = new THREE.DirectionalLight(0xd8d4c5, 2.15);
+  const key = new THREE.DirectionalLight(0xffe2b7, 2.75);
   key.name = 'PostStormKeyLight';
   key.position.set(-125, 165, 78);
   key.target.position.set(0, 0, -45);
@@ -354,7 +380,7 @@ export function createAtmosphere({
   key.shadow.normalBias = 0.035;
   group.add(key, key.target);
 
-  const fill = new THREE.DirectionalLight(0x647b8d, 0.52);
+  const fill = new THREE.DirectionalLight(0x86a4b9, 0.72);
   fill.name = 'WetSkyFill';
   fill.position.set(110, 75, -160);
   group.add(fill);
@@ -383,6 +409,7 @@ export function createAtmosphere({
     light.castShadow = false;
     group.add(light);
     smoke.light = light;
+    smoke.baseLightIntensity = index === 0 ? 7 : 4.5;
   });
 
   const distantSmokePositions = [
@@ -400,7 +427,7 @@ export function createAtmosphere({
       radius: 4,
       seed: seed + 7600 + index,
     });
-    smoke.material.uniforms.opacity.value = 0.16;
+    smoke.material.uniforms.opacity.value = 0.2;
     smokeEmitters.push(smoke);
     group.add(smoke.object);
   });
@@ -411,13 +438,13 @@ export function createAtmosphere({
     group,
     setWeatherIntensity(value) {
       weatherIntensity = THREE.MathUtils.clamp(value, 0, 1);
-      rain.object.material.opacity = 0.24 * weatherIntensity;
-      mist.object.material.uniforms.opacity.value = 0.105 * (0.35 + weatherIntensity * 0.65);
+      rain.object.material.opacity = 0.32 * weatherIntensity;
+      mist.object.material.uniforms.opacity.value = 0.082 * (0.3 + weatherIntensity * 0.7);
     },
     setFireIntensity(value) {
       fireIntensity = THREE.MathUtils.clamp(value, 0, 1.25);
       smokeEmitters.forEach((emitter) => {
-        if (emitter.light) emitter.light.intensity = 7 * fireIntensity;
+        if (emitter.light) emitter.light.intensity = emitter.baseLightIntensity * fireIntensity;
       });
     },
     update(delta, elapsed, camera) {
@@ -428,8 +455,8 @@ export function createAtmosphere({
       smokeEmitters.forEach((emitter, index) => {
         emitter.update(delta * (index < fireSockets.length ? fireIntensity : 1));
         if (emitter.light) {
-          emitter.light.intensity = (
-            5.3 + Math.sin(elapsed * 12 + index * 2.7) * 1.2
+          emitter.light.intensity = emitter.baseLightIntensity * (
+            0.88 + Math.sin(elapsed * 12 + index * 2.7) * 0.12
           ) * fireIntensity;
         }
       });
