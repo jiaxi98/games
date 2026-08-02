@@ -53,6 +53,7 @@ export function install(context) {
   let previousZ = context.player.position.z;
   let firstPlay = true;
   let battleStatusTimer = 0;
+  let terminalState = false;
   const shellMenu = globalThis.document?.querySelector?.('#game-menu');
   const shellHUD = globalThis.document?.querySelector?.('#game-hud');
   const shellHUDDisplay = shellHUD?.style.display ?? '';
@@ -79,6 +80,10 @@ export function install(context) {
   disposers.push(context.events.on('state:change', (state) => {
     const playing = state === 'playing';
     if (playing && !priorPlaying) {
+      if (terminalState) {
+        priorPlaying = playing;
+        return;
+      }
       if (shellMenu) shellMenu.hidden = true;
       hud.hidePanel();
       audio.resume();
@@ -88,14 +93,23 @@ export function install(context) {
         narrative.startMission();
         hud.showTutorial('move', { duration: 6 });
       }
-    } else if (!playing && priorPlaying && state === 'paused') {
+    } else if (!playing && priorPlaying && state === 'paused' && !terminalState) {
       hud.showPause();
       audio.handleEvent('pause');
     }
     priorPlaying = playing;
   }));
 
+  const lockTerminalPanel = () => {
+    terminalState = true;
+  };
+  disposers.push(context.events.on('victory', lockTerminalPanel));
+  disposers.push(context.events.on('mission:complete', lockTerminalPanel));
+  disposers.push(context.events.on('death', lockTerminalPanel));
+  disposers.push(context.events.on('mission:fail', lockTerminalPanel));
+
   disposers.push(hud.on('action:resume', () => {
+    if (terminalState) return;
     context.input.requestPointerLock();
   }));
   disposers.push(hud.on('action:start', () => {

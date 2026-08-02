@@ -126,13 +126,41 @@ try {
     path: `${outputDirectory}/victory.png`,
     fullPage: true,
   });
+  await page.waitForTimeout(750);
+  const terminal = await page.evaluate(() => {
+    const context = window.MedievalRPG.getContext();
+    const panel = document.querySelector('.as-panel-title');
+    const actions = [...document.querySelectorAll('.as-button-row button')]
+      .map((button) => button.textContent?.trim());
+    return {
+      appState: context.state.value,
+      missionStage: context.app.gameplay?.getState?.().stage,
+      playerEnabled: context.player.enabled,
+      title: panel?.textContent?.trim() ?? '',
+      actions,
+    };
+  });
 
-  console.log(JSON.stringify({ boot, metrics, missionFlow, runtimeIssues }, null, 2));
+  console.log(JSON.stringify({
+    boot,
+    metrics,
+    missionFlow,
+    terminal,
+    runtimeIssues,
+  }, null, 2));
   if (!boot.world || !boot.battlefield || !boot.presentation || !boot.combat) {
     process.exitCode = 1;
   }
   const expectedStages = ['recover', 'rally', 'break', 'captain', 'victory', 'won'];
   if (JSON.stringify(missionFlow?.stages) !== JSON.stringify(expectedStages)) {
+    process.exitCode = 1;
+  }
+  if (
+    terminal?.missionStage !== 'won'
+    || terminal?.playerEnabled !== false
+    || terminal?.title !== 'The Standard Rises'
+    || terminal?.actions?.includes('Return to battle')
+  ) {
     process.exitCode = 1;
   }
   if (runtimeIssues.length > 0) process.exitCode = 1;
