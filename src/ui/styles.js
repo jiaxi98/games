@@ -334,6 +334,55 @@ export function ensureUIStyles(documentRef = globalThis.document) {
       background: #b34b3f;
     }
 
+    @media (max-width: 1360px) {
+      .as-objective {
+        width: min(340px, 34vw);
+      }
+
+      .as-objective-detail {
+        font-size: 11px;
+      }
+
+      .as-battle {
+        width: min(220px, 24vw);
+      }
+
+      .as-encounter {
+        top: calc(var(--as-safe-top) + 76px);
+        width: min(430px, 48vw);
+      }
+    }
+
+    @media (max-width: 980px) {
+      .as-objective {
+        width: min(310px, 44vw);
+      }
+
+      .as-objective-detail,
+      .as-battle-row > strong {
+        display: none;
+      }
+
+      .as-battle {
+        width: min(180px, 28vw);
+      }
+
+      .as-encounter {
+        top: calc(var(--as-safe-top) + 92px);
+        width: min(520px, calc(100vw - 40px));
+      }
+
+      .as-encounter-copy {
+        grid-template-columns: 1fr;
+        gap: 3px;
+      }
+
+      .as-encounter-kicker,
+      .as-encounter-copy > span:last-child {
+        display: none;
+      }
+    }
+
     .as-reticle {
       position: absolute;
       left: 50%;

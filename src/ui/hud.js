@@ -83,6 +83,7 @@ export function createHUD(options = {}) {
     disposed: false,
   };
   let announcementToken = 0;
+  let objectiveToken = 0;
   let subtitleToken = 0;
   let tutorialToken = 0;
   let panelReturnFocus = null;
@@ -122,6 +123,7 @@ export function createHUD(options = {}) {
   };
 
   const setObjective = (objective = {}, objectiveOptions = {}) => {
+    const token = ++objectiveToken;
     state.objective = {
       id: objective.id ?? 'objective',
       title: objective.title ?? objective.short ?? '',
@@ -136,7 +138,9 @@ export function createHUD(options = {}) {
     refs.objectiveDetail.textContent = state.objective.detail;
     refs.objectiveProgress.style.setProperty('--progress', state.objective.progress);
     later(() => {
-      refs.objective.dataset.state = state.objective?.state === 'complete' ? 'complete' : 'active';
+      if (token === objectiveToken) {
+        refs.objective.dataset.state = state.objective?.state === 'complete' ? 'complete' : 'active';
+      }
     }, 30);
   };
 
@@ -152,12 +156,21 @@ export function createHUD(options = {}) {
 
   const completeObjective = (objective = state.objective) => {
     if (!objective) return;
+    const completedId = objective.id;
     setObjective({ ...objective, progress: 1, state: 'complete' });
     refs.objectiveKicker.textContent = 'Objective complete';
     refs.objective.dataset.state = 'active';
     later(() => {
-      refs.objective.dataset.state = 'complete';
+      if (state.objective?.id === completedId && state.objective?.state === 'complete') {
+        refs.objective.dataset.state = 'complete';
+      }
     }, 1050);
+  };
+
+  const clearTutorial = () => {
+    tutorialToken += 1;
+    refs.tutorial.dataset.visible = 'false';
+    refs.tutorial.innerHTML = '';
   };
 
   const setBattleStatus = (battle = {}) => {
@@ -215,6 +228,10 @@ export function createHUD(options = {}) {
   };
 
   const showTutorial = (cue, cueOptions = {}) => {
+    if (!cue || cueOptions.visible === false) {
+      clearTutorial();
+      return;
+    }
     const token = ++tutorialToken;
     const content = typeof cue === 'string' ? DEFAULT_TUTORIALS[cue] ?? { text: cue } : cue;
     refs.tutorial.innerHTML = '';
@@ -418,7 +435,8 @@ export function createHUD(options = {}) {
         setReticle(detail);
         break;
       case 'tutorial':
-        showTutorial(detail.cue ?? detail, detail);
+        if (detail.visible === false || detail.clear === true) clearTutorial();
+        else showTutorial(detail.cue ?? detail, detail);
         break;
       case 'commands':
         setCommands(detail.commands, detail);
@@ -514,6 +532,7 @@ export function createHUD(options = {}) {
     setCaptainEncounter,
     setCommands,
     showTutorial,
+    clearTutorial,
     announce,
     showSubtitle,
     showHit,
@@ -555,6 +574,7 @@ function createHeadlessHUD() {
     setCaptainEncounter: noOp,
     setCommands: noOp,
     showTutorial: noOp,
+    clearTutorial: noOp,
     announce: noOp,
     showSubtitle: noOp,
     showHit: noOp,

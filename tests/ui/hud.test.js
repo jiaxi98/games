@@ -14,6 +14,8 @@ describe('createHUD', () => {
         maxHealth: 100,
         phase: 'pressed',
       });
+      hud.showTutorial({ keys: ['R'], text: 'Brace' });
+      hud.clearTutorial();
       hud.handleEvent('damage', { intensity: 1 });
       hud.dispose();
     }).not.toThrow();

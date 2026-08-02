@@ -197,6 +197,7 @@ function createMissionSystem(context) {
 
   const completeAndAdvance = (transition) => {
     if (!transition) return;
+    events.emit('tutorial', { visible: false, clear: true });
     const completed = OBJECTIVES[transition.previous];
     if (completed) {
       events.emit('objective:complete', {
@@ -304,6 +305,9 @@ function createMissionSystem(context) {
       });
       emitCommands(MissionStage.VICTORY);
       updateCaptainHUD(false);
+      if (mission.kills === 0) {
+        mission.kills = 1;
+      }
     } else if (transition.current === MissionStage.WON) {
       battlefield.triggerReversal({
         id: 'bridge-secured',
