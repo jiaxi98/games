@@ -1,0 +1,220 @@
+import {
+  MathUtils,
+  Vector3,
+} from 'three';
+
+const _wishDirection = new Vector3();
+const _forward = new Vector3();
+const _right = new Vector3();
+const _displacement = new Vector3();
+const _targetHorizontal = new Vector3();
+const _cameraOffset = new Vector3();
+
+const DEFAULT_CONFIG = Object.freeze({
+  radius: 0.36,
+  standingHeight: 1.82,
+  crouchingHeight: 1.2,
+  standingEyeHeight: 1.67,
+  crouchingEyeHeight: 1.04,
+  walkSpeed: 4.6,
+  sprintSpeed: 7.4,
+  crouchSpeed: 2.3,
+  groundAcceleration: 38,
+  airAcceleration: 9,
+  groundFriction: 14,
+  gravity: 25,
+  jumpSpeed: 8.1,
+  lookSensitivity: 0.0018,
+  maxPitch: MathUtils.degToRad(88),
+});
+
+export class FirstPersonController {
+  constructor({
+    camera,
+    input,
+    collisionWorld,
+    spawn = new Vector3(0, 0, 8),
+    config = {},
+  }) {
+    this.name = 'FirstPersonController';
+    this.camera = camera;
+    this.input = input;
+    this.collisionWorld = collisionWorld;
+    this.config = { ...DEFAULT_CONFIG, ...config };
+    this.position = spawn.clone();
+    this.previousPosition = spawn.clone();
+    this.velocity = new Vector3();
+    this.yaw = 0;
+    this.pitch = 0;
+    this.grounded = false;
+    this.crouching = false;
+    this.eyeHeight = this.config.standingEyeHeight;
+    this.currentHeight = this.config.standingHeight;
+    this.bobTime = 0;
+    this.bobWeight = 0;
+    this.enabled = true;
+    this.#syncCamera(0, 1);
+  }
+
+  update(delta, context) {
+    if (!this.enabled || !context.state.isPlaying) return;
+
+    const look = this.input.consumeLookDelta();
+    this.yaw -= look.x * this.config.lookSensitivity;
+    this.pitch = MathUtils.clamp(
+      this.pitch - look.y * this.config.lookSensitivity,
+      -this.config.maxPitch,
+      this.config.maxPitch,
+    );
+
+    const planarSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    const isMoving = planarSpeed > 0.3 && this.grounded;
+    this.bobTime += isMoving ? delta * Math.min(planarSpeed, 8) * 1.65 : delta * 2;
+    this.bobWeight = MathUtils.damp(this.bobWeight, isMoving ? 1 : 0, 11, delta);
+
+    const targetFov = this.input.isDown('sprint') && isMoving && !this.crouching ? 78 : 73;
+    this.camera.fov = MathUtils.damp(this.camera.fov, targetFov, 7, delta);
+    this.camera.updateProjectionMatrix();
+    this.#syncCamera(delta, 1);
+  }
+
+  fixedUpdate(fixedDelta, context) {
+    if (!this.enabled || !context.state.isPlaying) return;
+
+    this.previousPosition.copy(this.position);
+    this.#updateStance(fixedDelta);
+
+    const axes = this.input.getMovementAxes();
+    const wantsMovement = axes.x !== 0 || axes.y !== 0;
+    const wantsSprint = this.input.isDown('sprint') && axes.y > 0 && !this.crouching;
+    const speed = this.crouching
+      ? this.config.crouchSpeed
+      : wantsSprint ? this.config.sprintSpeed : this.config.walkSpeed;
+
+    _forward.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+    _right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    _wishDirection
+      .set(0, 0, 0)
+      .addScaledVector(_forward, axes.y)
+      .addScaledVector(_right, axes.x);
+    if (_wishDirection.lengthSq() > 1) _wishDirection.normalize();
+
+    _targetHorizontal.copy(_wishDirection).multiplyScalar(speed);
+    const acceleration = this.grounded
+      ? this.config.groundAcceleration
+      : this.config.airAcceleration;
+
+    if (wantsMovement) {
+      this.velocity.x = moveToward(
+        this.velocity.x,
+        _targetHorizontal.x,
+        acceleration * fixedDelta,
+      );
+      this.velocity.z = moveToward(
+        this.velocity.z,
+        _targetHorizontal.z,
+        acceleration * fixedDelta,
+      );
+    } else if (this.grounded) {
+      const friction = this.config.groundFriction * fixedDelta;
+      this.velocity.x = moveToward(this.velocity.x, 0, friction);
+      this.velocity.z = moveToward(this.velocity.z, 0, friction);
+    }
+
+    if (this.grounded && this.input.wasPressed('jump') && !this.crouching) {
+      this.velocity.y = this.config.jumpSpeed;
+      this.grounded = false;
+    } else {
+      this.velocity.y -= this.config.gravity * fixedDelta;
+    }
+
+    _displacement.copy(this.velocity).multiplyScalar(fixedDelta);
+    const result = this.collisionWorld.moveCapsule(
+      this.position,
+      _displacement,
+      this.config.radius,
+      this.currentHeight,
+    );
+
+    this.position.copy(result.position);
+    this.grounded = result.grounded;
+    if (result.grounded && this.velocity.y < 0) this.velocity.y = 0;
+    if (result.hitCeiling && this.velocity.y > 0) this.velocity.y = 0;
+    if (result.blockedX) this.velocity.x = 0;
+    if (result.blockedZ) this.velocity.z = 0;
+
+    if (this.position.y < -100) this.teleport(new Vector3(0, 2, 8));
+  }
+
+  lateUpdate(_delta, context) {
+    if (!this.enabled || !context.state.isPlaying) return;
+    this.#syncCamera(0, context.frameAlpha);
+  }
+
+  teleport(position, { yaw = this.yaw, pitch = this.pitch } = {}) {
+    this.position.copy(position);
+    this.previousPosition.copy(position);
+    this.velocity.set(0, 0, 0);
+    this.yaw = yaw;
+    this.pitch = pitch;
+    this.#syncCamera(0, 1);
+  }
+
+  getSnapshot() {
+    return {
+      position: this.position.clone(),
+      velocity: this.velocity.clone(),
+      yaw: this.yaw,
+      pitch: this.pitch,
+      grounded: this.grounded,
+      crouching: this.crouching,
+      height: this.currentHeight,
+    };
+  }
+
+  #updateStance(delta) {
+    const wantsCrouch = this.input.isDown('crouch');
+    if (wantsCrouch) {
+      this.crouching = true;
+    } else if (
+      this.collisionWorld.canOccupy(
+        this.position,
+        this.config.radius,
+        this.config.standingHeight,
+      )
+    ) {
+      this.crouching = false;
+    }
+
+    const targetHeight = this.crouching
+      ? this.config.crouchingHeight
+      : this.config.standingHeight;
+    const targetEyeHeight = this.crouching
+      ? this.config.crouchingEyeHeight
+      : this.config.standingEyeHeight;
+
+    this.currentHeight = MathUtils.damp(this.currentHeight, targetHeight, 18, delta);
+    this.eyeHeight = MathUtils.damp(this.eyeHeight, targetEyeHeight, 18, delta);
+  }
+
+  #syncCamera(_delta, alpha) {
+    _cameraOffset.lerpVectors(this.previousPosition, this.position, alpha);
+    const bobX = Math.cos(this.bobTime * 0.5) * 0.022 * this.bobWeight;
+    const bobY = Math.abs(Math.sin(this.bobTime)) * 0.034 * this.bobWeight;
+
+    this.camera.position.set(
+      _cameraOffset.x + Math.cos(this.yaw) * bobX,
+      _cameraOffset.y + this.eyeHeight + bobY,
+      _cameraOffset.z - Math.sin(this.yaw) * bobX,
+    );
+    this.camera.rotation.order = 'YXZ';
+    this.camera.rotation.set(this.pitch, this.yaw, 0);
+  }
+}
+
+function moveToward(current, target, maximumDelta) {
+  if (Math.abs(target - current) <= maximumDelta) return target;
+  return current + Math.sign(target - current) * maximumDelta;
+}
+
+export { DEFAULT_CONFIG as FIRST_PERSON_DEFAULTS };

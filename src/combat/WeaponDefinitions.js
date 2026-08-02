@@ -1,0 +1,163 @@
+import { DamageType } from './Combatant.js';
+
+const freezeAttack = (attack) => Object.freeze({
+  recover: 0.34,
+  comboWindow: [0.32, 0.58],
+  hitStop: 0.045,
+  poiseDamage: attack.damage * 0.62,
+  ...attack,
+});
+
+export const WEAPONS = Object.freeze({
+  longsword: Object.freeze({
+    id: 'longsword',
+    label: 'Longsword',
+    reach: 2.15,
+    blockStability: 7,
+    blockArc: Math.PI * 0.72,
+    attacks: Object.freeze([
+      freezeAttack({
+        id: 'right-cut',
+        windup: 0.24,
+        active: 0.16,
+        damage: 31,
+        stamina: 18,
+        damageType: DamageType.CUT,
+        arc: [-1.05, 0.62],
+      }),
+      freezeAttack({
+        id: 'left-cut',
+        windup: 0.21,
+        active: 0.16,
+        damage: 29,
+        stamina: 17,
+        damageType: DamageType.CUT,
+        arc: [0.96, -0.68],
+      }),
+      freezeAttack({
+        id: 'overhead',
+        windup: 0.31,
+        active: 0.14,
+        recover: 0.42,
+        damage: 39,
+        stamina: 24,
+        damageType: DamageType.CUT,
+        poiseDamage: 34,
+        arc: [0.1, -0.1],
+        vertical: true,
+      }),
+    ]),
+    heavy: freezeAttack({
+      id: 'murder-stroke',
+      windup: 0.48,
+      active: 0.18,
+      recover: 0.55,
+      damage: 53,
+      stamina: 34,
+      damageType: DamageType.BLUNT,
+      poiseDamage: 52,
+      arc: [-0.42, 0.28],
+    }),
+  }),
+  armingSword: Object.freeze({
+    id: 'armingSword',
+    label: 'Arming sword',
+    reach: 1.75,
+    blockStability: 5,
+    blockArc: Math.PI * 0.7,
+    attacks: Object.freeze([
+      freezeAttack({
+        id: 'forehand',
+        windup: 0.18,
+        active: 0.14,
+        recover: 0.28,
+        damage: 25,
+        stamina: 14,
+        damageType: DamageType.CUT,
+        arc: [-1, 0.7],
+      }),
+      freezeAttack({
+        id: 'backhand',
+        windup: 0.17,
+        active: 0.13,
+        recover: 0.26,
+        damage: 24,
+        stamina: 13,
+        damageType: DamageType.CUT,
+        arc: [0.95, -0.72],
+      }),
+      freezeAttack({
+        id: 'thrust',
+        windup: 0.25,
+        active: 0.12,
+        damage: 34,
+        stamina: 18,
+        damageType: DamageType.PIERCE,
+        poiseDamage: 22,
+        thrust: true,
+        arc: [0, 0],
+      }),
+    ]),
+    heavy: freezeAttack({
+      id: 'pommel-strike',
+      windup: 0.34,
+      active: 0.13,
+      recover: 0.4,
+      damage: 36,
+      stamina: 26,
+      damageType: DamageType.BLUNT,
+      poiseDamage: 45,
+      arc: [-0.25, 0.2],
+    }),
+  }),
+  spear: Object.freeze({
+    id: 'spear',
+    label: 'War spear',
+    reach: 3.2,
+    blockStability: 3,
+    blockArc: Math.PI * 0.58,
+    attacks: Object.freeze([
+      freezeAttack({
+        id: 'high-thrust',
+        windup: 0.27,
+        active: 0.16,
+        recover: 0.38,
+        damage: 36,
+        stamina: 17,
+        damageType: DamageType.PIERCE,
+        thrust: true,
+        arc: [0, 0],
+      }),
+      freezeAttack({
+        id: 'low-thrust',
+        windup: 0.23,
+        active: 0.15,
+        recover: 0.36,
+        damage: 33,
+        stamina: 16,
+        damageType: DamageType.PIERCE,
+        thrust: true,
+        arc: [0.08, -0.08],
+      }),
+    ]),
+    heavy: freezeAttack({
+      id: 'driving-thrust',
+      windup: 0.45,
+      active: 0.18,
+      recover: 0.55,
+      damage: 58,
+      stamina: 32,
+      damageType: DamageType.PIERCE,
+      poiseDamage: 44,
+      thrust: true,
+      arc: [0, 0],
+    }),
+  }),
+});
+
+export function getWeaponDefinition(id = 'longsword') {
+  const weapon = WEAPONS[id];
+  if (!weapon) throw new Error(`Unknown weapon definition: ${id}`);
+  return weapon;
+}
+
