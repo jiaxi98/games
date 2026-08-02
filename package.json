@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "visual:smoke": "node tools/visual-smoke.mjs"
+    "visual:smoke": "node tools/visual-smoke.mjs",
+    "playtest:e2e": "node tools/playtest-e2e.mjs"
   },
   "dependencies": {
     "three": "^0.179.1"
