@@ -89,6 +89,14 @@ try {
   await capture('04-captain-defeated');
 
   timings.toBridge = await walkTo(debug.bridge, 15, 30_000);
+  await page.evaluate(() => {
+    const context = window.MedievalRPG.getContext();
+    const bridge = context.app.gameplay.getDebugState().landmarks.bridge;
+    const approach = bridge.clone();
+    approach.z += 7;
+    approach.y = context.app.world.sampleHeight(approach.x, approach.z) + 0.04;
+    context.player.teleport(approach, { yaw: 0, pitch: -0.08 });
+  });
   await face(debug.bridge);
   await page.keyboard.press('e');
   await waitForStage('won');
