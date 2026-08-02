@@ -225,6 +225,8 @@ function createVisibilityManager({
   });
 
   function isLandmarkRelevant(sector) {
+    // Phase relevance may extend a landmark's range, but should not force
+    // hundreds-of-metres-distant detailed geometry to render permanently.
     return sector.activePhases?.includes(activePhase) ?? false;
   }
 
@@ -234,8 +236,9 @@ function createVisibilityManager({
       const threshold = sector.root.visible
         ? sector.exitDistance
         : sector.enterDistance;
-      sector.root.visible = isLandmarkRelevant(sector)
-        || distance <= threshold;
+      const relevantRange = sector.exitDistance * 1.08;
+      sector.root.visible = distance <= threshold
+        || (isLandmarkRelevant(sector) && distance <= relevantRange);
     });
   }
 
