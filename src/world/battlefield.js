@@ -801,6 +801,7 @@ export function createRouteCompositionCells({
       backgroundObjective: cell.objective,
       clearHalfWidth: 8.5,
     };
+    anchor.userData.visibilityAnchor = new THREE.Vector3(0, 0, cell.z);
     group.add(anchor);
 
     const foregroundX = cell.foregroundSide * (17 + (cellIndex % 2) * 3);
@@ -878,9 +879,16 @@ export function createRouteCompositionCells({
       const cart = createCart(materials, cellIndex % 2 === 0);
       cart.name = `CompositionCart:${cell.name}`;
       cart.scale.setScalar(0.86);
-      cart.position.set(cartX, sampleHeight(cartX, cartZ) + 0.05, cartZ);
+      cart.position.set(
+        cartX,
+        sampleHeight(cartX, cartZ) - anchor.position.y + 0.05,
+        cartZ - cell.z,
+      );
       cart.rotation.y = cell.foregroundSide * (Math.PI * 0.46 + cellIndex * 0.025);
-      group.add(cart);
+      // Route anchors now own their authored non-instanced detail. Shared
+      // instanced ground marks remain batched across the route, while these
+      // relatively expensive carts can follow local/adjacent sector visibility.
+      anchor.add(cart);
     }
 
     for (let fighter = 0; fighter < 4; fighter += 1) {
@@ -1267,6 +1275,27 @@ export function createDistantBattleBelts({
       { x: 75, z: -208, frontage: 12, heading: Math.PI + 0.08 },
     ],
   };
+  const horizonSectors = [];
+  const horizonSectorByKey = new Map();
+  Object.entries(layouts).forEach(([side, formations]) => {
+    formations.forEach((formation, index) => {
+      const sector = new THREE.Group();
+      sector.name = `DistantBattleSector:${side}:${index}`;
+      sector.userData.visibilityAnchor = new THREE.Vector3(
+        formation.x,
+        0,
+        formation.z,
+      );
+      sector.userData.horizonBattleSector = {
+        side,
+        index,
+        frontage: formation.frontage,
+      };
+      horizonSectors.push(sector);
+      horizonSectorByKey.set(`${side}:${index}`, sector);
+      group.add(sector);
+    });
+  });
 
   function placeRanks(mesh, formations) {
     for (let index = 0; index < rankCount; index += 1) {
@@ -1402,7 +1431,8 @@ export function createDistantBattleBelts({
   for (let index = 0; index < 18; index += 1) {
     const side = index % 2 ? 1 : -1;
     const formations = side < 0 ? layouts.blue : layouts.red;
-    const formation = formations[index % formations.length];
+    const formationIndex = index % formations.length;
+    const formation = formations[formationIndex];
     const x = formation.x + randomSigned(random, 8);
     const z = formation.z + randomSigned(random, 6);
     const banner = createStandard({
@@ -1415,8 +1445,16 @@ export function createDistantBattleBelts({
     });
     banner.scale.setScalar(0.78);
     banners.push(banner);
-    group.add(banner);
+    horizonSectorByKey
+      .get(`${side < 0 ? 'blue' : 'red'}:${formationIndex}`)
+      .add(banner);
   }
 
-  return { group, banners, redRanks, blueRanks };
+  return {
+    group,
+    banners,
+    redRanks,
+    blueRanks,
+    horizonSectors,
+  };
 }

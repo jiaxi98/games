@@ -74,6 +74,39 @@ describe('BattlefieldSimulation', () => {
     simulation.dispose();
   });
 
+  it('selects detailed, simplified mid, and crowd LODs without changing actors', () => {
+    const simulation = createBattlefieldSimulation({
+      farVisuals: true,
+      nearDistance: 10,
+      midDistance: 30,
+    });
+    const squad = simulation.createSquad({
+      id: 'lod-line',
+      factionId: FactionId.VANGUARD,
+      count: 3,
+      anchor: new Vector3(),
+    });
+    const camera = new Vector3(0, 2, 0);
+    squad.actors[0].setPosition(0, 0, 5);
+    squad.actors[1].setPosition(0, 0, 20);
+    squad.actors[2].setPosition(0, 0, 40);
+
+    simulation.update(0.1, camera);
+
+    expect(squad.actors.map((actor) => actor.lod)).toEqual([0, 1, 2]);
+    expect(squad.actors[0].detailedRoot.visible).toBe(true);
+    expect(squad.actors[0].midRoot.visible).toBe(false);
+    expect(squad.actors[1].detailedRoot.visible).toBe(false);
+    expect(squad.actors[1].midRoot.visible).toBe(true);
+    expect(squad.actors[1].object3d.visible).toBe(true);
+    expect(squad.actors[2].detailedRoot.visible).toBe(false);
+    expect(squad.actors[2].midRoot.visible).toBe(false);
+    expect(squad.actors[2].object3d.visible).toBe(false);
+    expect(simulation.actors).toHaveLength(3);
+
+    simulation.dispose();
+  });
+
   it('resets observed flank pressure when enemies leave the flank', () => {
     const simulation = createBattlefieldSimulation({ farVisuals: false });
     const squad = simulation.createSquad({

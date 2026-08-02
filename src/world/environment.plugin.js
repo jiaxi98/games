@@ -10,6 +10,7 @@ export function install(context) {
     weather: true,
   });
   const disposers = [];
+  let battlePhase = null;
 
   context.removeFallbackEnvironment();
   // `context` is intentionally frozen by the application foundation. Expose
@@ -53,6 +54,8 @@ export function install(context) {
         victory: 0.35,
       };
       if (phase in intensityByPhase) {
+        battlePhase = phase;
+        world.setBattlePhase(phase);
         world.setBattleIntensity(intensityByPhase[phase]);
       }
     }),
@@ -68,6 +71,7 @@ export function install(context) {
     update(delta) {
       world.update(delta, context.camera, {
         battleIntensity: context.battle?.intensity,
+        battlePhase,
       });
     },
     dispose() {

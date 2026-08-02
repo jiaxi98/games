@@ -36,6 +36,24 @@ describe('FirstPersonWeaponRig', () => {
     rig.dispose();
   });
 
+  it('keeps every weapon variant within the bounded viewmodel draw budget', () => {
+    for (const weapon of ['longsword', 'armingSword', 'spear']) {
+      const rig = createFirstPersonWeaponRig({ weapon });
+      const meshes = [];
+      rig.object3d.traverse((object) => {
+        if (object.isMesh) meshes.push(object.name);
+      });
+
+      expect(meshes.length, `${weapon}: ${meshes.join(', ')}`).toBeLessThanOrEqual(14);
+      expect(rig.object3d.getObjectByName('RightArm')).toBeTruthy();
+      expect(rig.object3d.getObjectByName('LeftArm')).toBeTruthy();
+      expect(rig.object3d.getObjectByName('RightArm:Hand')?.isMesh).toBe(true);
+      expect(rig.object3d.getObjectByName('LeftArm:Hand')?.isMesh).toBe(true);
+
+      rig.dispose();
+    }
+  });
+
   it('keeps neutral, block, cut, and thrust poses distinct and legible', () => {
     const rig = createFirstPersonWeaponRig();
     const weaponRoot = rig.object3d.getObjectByName('WeaponRoot');
@@ -170,20 +188,22 @@ describe('FirstPersonWeaponRig', () => {
       ],
     ];
 
-    for (const attack of attacks) {
-      const rig = createFirstPersonWeaponRig();
-      for (const [before, after] of transitions) {
-        rig.update(0, { ...before, attack });
-        const first = rig.getPoseSample();
-        rig.update(0, { ...after, attack });
-        const second = rig.getPoseSample();
+    for (const weapon of ['longsword', 'spear']) {
+      for (const attack of attacks) {
+        const rig = createFirstPersonWeaponRig({ weapon });
+        for (const [before, after] of transitions) {
+          rig.update(0, { ...before, attack });
+          const first = rig.getPoseSample();
+          rig.update(0, { ...after, attack });
+          const second = rig.getPoseSample();
 
-        expect(distance(first.weaponPosition, second.weaponPosition)).toBeLessThan(0.01);
-        expect(quaternionDistance(first.weaponQuaternion, second.weaponQuaternion)).toBeLessThan(0.02);
-        expect(distance(first.primaryGrip, second.primaryGrip)).toBeLessThan(0.015);
-        expect(distance(first.secondaryGrip, second.secondaryGrip)).toBeLessThan(0.015);
+          expect(distance(first.weaponPosition, second.weaponPosition)).toBeLessThan(0.01);
+          expect(quaternionDistance(first.weaponQuaternion, second.weaponQuaternion)).toBeLessThan(0.02);
+          expect(distance(first.primaryGrip, second.primaryGrip)).toBeLessThan(0.015);
+          expect(distance(first.secondaryGrip, second.secondaryGrip)).toBeLessThan(0.015);
+        }
+        rig.dispose();
       }
-      rig.dispose();
     }
   });
 

@@ -28,6 +28,47 @@ const DEFAULT_OPTIONS = Object.freeze({
   terrainSegments: undefined,
 });
 
+const LANDMARK_VISIBILITY = Object.freeze({
+  baggage: Object.freeze({
+    enterDistance: 158,
+    exitDistance: 184,
+    activePhases: Object.freeze(['opening', 'standard']),
+  }),
+  hedgerow: Object.freeze({
+    enterDistance: 172,
+    exitDistance: 202,
+    activePhases: Object.freeze(['rally']),
+  }),
+  mill: Object.freeze({
+    enterDistance: 188,
+    exitDistance: 220,
+    activePhases: Object.freeze(['spear_line']),
+  }),
+  bridge: Object.freeze({
+    enterDistance: 214,
+    exitDistance: 246,
+    activePhases: Object.freeze(['spear_line', 'ford', 'victory']),
+  }),
+  oak: Object.freeze({
+    enterDistance: 168,
+    exitDistance: 198,
+    activePhases: Object.freeze(['rally']),
+  }),
+  fallenStandard: Object.freeze({
+    enterDistance: 178,
+    exitDistance: 208,
+    activePhases: Object.freeze(['opening', 'standard']),
+  }),
+  spearLine: Object.freeze({
+    enterDistance: 188,
+    exitDistance: 218,
+    activePhases: Object.freeze(['spear_line', 'ford']),
+  }),
+});
+
+const HORIZON_SECTOR_ENTER_DISTANCE = 305;
+const HORIZON_SECTOR_EXIT_DISTANCE = 348;
+
 function getTerrainSegments(quality, requested) {
   if (requested) return requested;
   if (quality === 'low') return 96;
@@ -106,6 +147,150 @@ function setLandmarkHeights(landmarks, sampleHeight, bridgeSurfaceHeight) {
       : sampleHeight(value.x, value.z);
   });
   return Object.freeze(result);
+}
+
+function horizontalDistanceTo(position, anchor) {
+  return Math.hypot(position.x - anchor.x, position.z - anchor.z);
+}
+
+function createVisibilityManager({
+  baggage,
+  hedgerow,
+  mill,
+  bridge,
+  routeComposition,
+  oak,
+  fallenStandard,
+  spearLineMarkers,
+  distantBattle,
+}) {
+  const landmarkRoots = [
+    {
+      id: 'baggage',
+      root: baggage.group,
+      anchor: baggage.group.position,
+      ...LANDMARK_VISIBILITY.baggage,
+    },
+    {
+      id: 'hedgerow',
+      root: hedgerow.group,
+      anchor: hedgerow.group.position,
+      ...LANDMARK_VISIBILITY.hedgerow,
+    },
+    {
+      id: 'mill',
+      root: mill.group,
+      anchor: mill.group.position,
+      ...LANDMARK_VISIBILITY.mill,
+    },
+    {
+      id: 'bridge',
+      root: bridge.group,
+      anchor: bridge.group.position,
+      ...LANDMARK_VISIBILITY.bridge,
+    },
+    {
+      id: 'oak',
+      root: oak,
+      anchor: oak.position,
+      ...LANDMARK_VISIBILITY.oak,
+    },
+    {
+      id: 'fallenStandard',
+      root: fallenStandard,
+      anchor: fallenStandard.position,
+      ...LANDMARK_VISIBILITY.fallenStandard,
+    },
+    {
+      id: 'spearLine',
+      root: spearLineMarkers,
+      anchor: new THREE.Vector3(0, 0, -82),
+      ...LANDMARK_VISIBILITY.spearLine,
+    },
+  ];
+  const routeSectors = routeComposition.children
+    .filter((child) => child.name.startsWith('RouteCompositionCell:'))
+    .sort((left, right) => (
+      left.userData.routeComposition.index - right.userData.routeComposition.index
+    ));
+  const horizonSectors = distantBattle.horizonSectors ?? [];
+  const cameraPosition = new THREE.Vector3();
+  let activePhase = null;
+
+  landmarkRoots.forEach(({ root, id, anchor }) => {
+    root.userData.worldVisibilitySector = {
+      id,
+      anchor: new THREE.Vector3(anchor.x, 0, anchor.z),
+    };
+  });
+
+  function isLandmarkRelevant(sector) {
+    return sector.activePhases?.includes(activePhase) ?? false;
+  }
+
+  function updateLandmarks() {
+    landmarkRoots.forEach((sector) => {
+      const distance = horizontalDistanceTo(cameraPosition, sector.anchor);
+      const threshold = sector.root.visible
+        ? sector.exitDistance
+        : sector.enterDistance;
+      sector.root.visible = isLandmarkRelevant(sector)
+        || distance <= threshold;
+    });
+  }
+
+  function updateRouteSectors() {
+    let nearestIndex = 0;
+    let nearestDistance = Infinity;
+    routeSectors.forEach((sector, index) => {
+      const anchor = sector.userData.visibilityAnchor ?? sector.position;
+      const distance = horizontalDistanceTo(cameraPosition, anchor);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    });
+    routeSectors.forEach((sector, index) => {
+      sector.visible = Math.abs(index - nearestIndex) <= 1;
+    });
+  }
+
+  function updateHorizonSectors() {
+    horizonSectors.forEach((sector) => {
+      const anchor = sector.userData.visibilityAnchor ?? sector.position;
+      const threshold = sector.visible
+        ? HORIZON_SECTOR_EXIT_DISTANCE
+        : HORIZON_SECTOR_ENTER_DISTANCE;
+      sector.visible = horizontalDistanceTo(cameraPosition, anchor) <= threshold;
+    });
+  }
+
+  return {
+    update(camera, state) {
+      camera.getWorldPosition(cameraPosition);
+      activePhase = state.battlePhase ?? state.phase ?? activePhase;
+      updateLandmarks();
+      updateRouteSectors();
+      updateHorizonSectors();
+    },
+    setBattlePhase(phase) {
+      activePhase = phase ?? null;
+    },
+    getState() {
+      return {
+        battlePhase: activePhase,
+        landmarks: Object.fromEntries(
+          landmarkRoots.map(({ id, root }) => [id, root.visible]),
+        ),
+        routeSectors: Object.fromEntries(
+          routeSectors.map((sector) => [sector.name, sector.visible]),
+        ),
+        horizonSectors: Object.fromEntries(
+          horizonSectors.map((sector) => [sector.name, sector.visible]),
+        ),
+      };
+    },
+  };
 }
 
 /**
@@ -232,6 +417,18 @@ export function createWorld(scene, renderer, options = {}) {
   });
   root.add(distantBattle.group);
 
+  const visibility = createVisibilityManager({
+    baggage,
+    hedgerow,
+    mill,
+    bridge,
+    routeComposition,
+    oak,
+    fallenStandard,
+    spearLineMarkers,
+    distantBattle,
+  });
+
   const bannerCloths = [];
   root.traverse((object) => {
     if (object.name === 'AnimatedBannerCloth') bannerCloths.push(object);
@@ -349,6 +546,12 @@ export function createWorld(scene, renderer, options = {}) {
       battleIntensity = THREE.MathUtils.clamp(value, 0, 1);
       atmosphere.setFireIntensity(0.45 + battleIntensity * 0.55);
     },
+    setBattlePhase(phase) {
+      visibility.setBattlePhase(phase);
+    },
+    getVisibilityState() {
+      return visibility.getState();
+    },
     update(delta, camera, state = {}) {
       if (!camera?.isCamera) return;
       elapsed += Math.min(delta, 0.1);
@@ -356,6 +559,7 @@ export function createWorld(scene, renderer, options = {}) {
         0.82 + Math.sin(elapsed * 0.14) * 0.12 + Math.sin(elapsed * 0.71) * 0.08
       );
       battleIntensity = state.battleIntensity ?? battleIntensity;
+      visibility.update(camera, state);
       bannerAnimationElapsed += Math.min(delta, 0.1);
       if (bannerAnimationElapsed >= bannerAnimationInterval) {
         animateBanners(bannerCloths, elapsed, windStrength);

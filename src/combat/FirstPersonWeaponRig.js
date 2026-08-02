@@ -11,6 +11,7 @@ import {
   TorusGeometry,
   Vector3,
 } from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WeaponState } from './MeleeCombatController.js';
 
 const NEUTRAL = Object.freeze({
@@ -83,7 +84,6 @@ export function createFirstPersonWeaponRig({
     cloth,
     clothTrim,
     leather,
-    steelDark,
     handedness: 1,
   });
   root.add(rightArm);
@@ -94,7 +94,6 @@ export function createFirstPersonWeaponRig({
     cloth,
     clothTrim,
     leather,
-    steelDark,
     handedness: -1,
   });
   root.add(leftArm);
@@ -180,24 +179,26 @@ function createArm({
   cloth,
   clothTrim,
   leather,
-  steelDark,
   handedness,
 }) {
   const arm = new Group();
   arm.name = name;
 
-  const sleeve = new Mesh(new CapsuleGeometry(0.078, 0.26, 4, 8), cloth);
+  const sleeve = createMergedMesh([
+    geometryPart(new CapsuleGeometry(0.078, 0.26, 4, 8), {
+      position: [0, 0, -0.11],
+      rotation: [Math.PI / 2, 0, 0],
+      scale: [1.12, 1, 1],
+    }),
+    geometryPart(new SphereGeometry(0.083, 8, 5), {
+      position: [0, 0, -0.28],
+      scale: [1, 1, 0.8],
+    }),
+  ], cloth);
   sleeve.name = `${name}:Sleeve`;
-  sleeve.rotation.x = Math.PI / 2;
-  sleeve.position.z = -0.11;
-  sleeve.scale.set(1.12, 1, 1);
   arm.add(sleeve);
 
-  const elbow = new Mesh(new SphereGeometry(0.083, 8, 5), cloth);
-  elbow.name = `${name}:Elbow`;
-  elbow.position.z = -0.28;
-  elbow.scale.z = 0.8;
-  arm.add(elbow);
+  addComponentAlias(arm, `${name}:Elbow`, [0, 0, -0.28]);
 
   const cuff = new Mesh(new CylinderGeometry(0.078, 0.068, 0.095, 8), clothTrim);
   cuff.name = `${name}:Cuff`;
@@ -205,16 +206,20 @@ function createArm({
   cuff.position.z = -0.37;
   arm.add(cuff);
 
-  const vambrace = new Mesh(new CylinderGeometry(0.068, 0.056, 0.23, 8), leather);
+  const vambrace = createMergedMesh([
+    geometryPart(new CylinderGeometry(0.068, 0.056, 0.23, 8), {
+      position: [0, 0, -0.49],
+      rotation: [Math.PI / 2, 0, 0],
+    }),
+    geometryPart(new BoxGeometry(0.105, 0.032, 0.1), {
+      position: [0, 0.032, -0.655],
+      rotation: [0, handedness * 0.08, 0],
+    }),
+  ], leather);
   vambrace.name = `${name}:Vambrace`;
-  vambrace.rotation.x = Math.PI / 2;
-  vambrace.position.z = -0.49;
   arm.add(vambrace);
 
-  const wristBand = new Mesh(new TorusGeometry(0.058, 0.009, 4, 9), steelDark);
-  wristBand.name = `${name}:WristBand`;
-  wristBand.position.z = -0.615;
-  arm.add(wristBand);
+  addComponentAlias(arm, `${name}:WristBand`, [0, 0, -0.615]);
 
   const hand = new Mesh(new CapsuleGeometry(0.052, 0.09, 4, 8), skin);
   hand.name = `${name}:Hand`;
@@ -223,11 +228,7 @@ function createArm({
   hand.position.set(...HAND_LOCAL_POSITION);
   arm.add(hand);
 
-  const gloveBack = new Mesh(new BoxGeometry(0.105, 0.032, 0.1), leather);
-  gloveBack.name = `${name}:Glove`;
-  gloveBack.position.set(0, 0.032, -0.655);
-  gloveBack.rotation.y = handedness * 0.08;
-  arm.add(gloveBack);
+  addComponentAlias(arm, `${name}:Glove`, [0, 0.032, -0.655]);
 
   arm.userData.hand = hand;
   return arm;
@@ -240,68 +241,77 @@ function createSword(root, {
   leather,
   brass,
 }) {
-  const grip = new Mesh(new CylinderGeometry(0.027, 0.032, 0.28, 9), leather);
+  const grip = createMergedMesh([
+    geometryPart(new CylinderGeometry(0.027, 0.032, 0.28, 9), {
+      position: [0, 0, -0.08],
+      rotation: [Math.PI / 2, 0, 0],
+    }),
+    geometryPart(new BoxGeometry(0.085, 0.035, 0.08), {
+      position: [0, 0, -0.3],
+    }),
+  ], leather);
   grip.name = 'SwordGrip';
-  grip.rotation.x = Math.PI / 2;
-  grip.position.z = -0.08;
   root.add(grip);
+  addComponentAlias(root, 'RainGuard', [0, 0, -0.3]);
 
+  const gripBindingParts = [];
   for (let i = 0; i < 5; i += 1) {
-    const wrap = new Mesh(new TorusGeometry(0.0325, 0.004, 3, 8), brass);
-    wrap.name = 'GripBinding';
-    wrap.position.z = 0.02 - i * 0.052;
-    root.add(wrap);
+    gripBindingParts.push(geometryPart(new TorusGeometry(0.0325, 0.004, 3, 8), {
+      position: [0, 0, 0.02 - i * 0.052],
+    }));
   }
+  gripBindingParts.push(geometryPart(new SphereGeometry(0.052, 7, 5), {
+    position: [0, 0, 0.1],
+    scale: [1, 1, 0.78],
+  }));
+  const gripBinding = createMergedMesh(gripBindingParts, brass);
+  gripBinding.name = 'GripBinding';
+  root.add(gripBinding);
+  addComponentAlias(root, 'SwordPommel', [0, 0, 0.1]);
 
-  const guard = new Mesh(new CylinderGeometry(0.018, 0.027, 0.4, 7), steelDark);
+  const guard = createMergedMesh([
+    geometryPart(new CylinderGeometry(0.018, 0.027, 0.4, 7), {
+      position: [0, 0, -0.255],
+      rotation: [0, 0, Math.PI / 2],
+    }),
+    geometryPart(new ConeGeometry(0.028, 0.12, 5), {
+      position: [-0.255, 0.025, -0.255],
+      rotation: [0, 0, Math.PI / 2],
+    }),
+    geometryPart(new ConeGeometry(0.028, 0.12, 5), {
+      position: [0.255, 0.025, -0.255],
+      rotation: [0, 0, -Math.PI / 2],
+    }),
+  ], steelDark);
   guard.name = 'Crossguard';
-  guard.rotation.z = Math.PI / 2;
-  guard.position.z = -0.255;
   root.add(guard);
+  addComponentAlias(root, 'LeftQuillon', [-0.255, 0.025, -0.255]);
+  addComponentAlias(root, 'RightQuillon', [0.255, 0.025, -0.255]);
 
-  const leftQuillon = new Mesh(new ConeGeometry(0.028, 0.12, 5), steelDark);
-  leftQuillon.name = 'LeftQuillon';
-  leftQuillon.rotation.z = Math.PI / 2;
-  leftQuillon.position.set(-0.255, 0.025, -0.255);
-  root.add(leftQuillon);
-  const rightQuillon = leftQuillon.clone();
-  rightQuillon.name = 'RightQuillon';
-  rightQuillon.rotation.z = -Math.PI / 2;
-  rightQuillon.position.x = 0.255;
-  root.add(rightQuillon);
-
-  const rainGuard = new Mesh(new BoxGeometry(0.085, 0.035, 0.08), leather);
-  rainGuard.name = 'RainGuard';
-  rainGuard.position.z = -0.3;
-  root.add(rainGuard);
-
-  const blade = new Mesh(new BoxGeometry(0.052, 0.014, bladeLength), steel);
+  const blade = createMergedMesh([
+    geometryPart(new BoxGeometry(0.052, 0.014, bladeLength), {
+      position: [0, 0, -0.34 - bladeLength * 0.5],
+    }),
+    geometryPart(new ConeGeometry(0.038, 0.18, 4), {
+      position: [0, 0, -0.34 - bladeLength - 0.09],
+      rotation: [Math.PI / 2, Math.PI / 4, 0],
+    }),
+  ], steel);
   blade.name = 'SwordBlade';
-  blade.position.z = -0.34 - bladeLength * 0.5;
   root.add(blade);
+  addComponentAlias(root, 'SwordPoint', [0, 0, -0.34 - bladeLength - 0.09]);
 
-  const fuller = new Mesh(new BoxGeometry(0.014, 0.006, bladeLength * 0.82), steelDark);
+  const fuller = createMergedMesh([
+    geometryPart(new BoxGeometry(0.014, 0.006, bladeLength * 0.82), {
+      position: [0, 0.011, -0.34 - bladeLength * 0.43],
+    }),
+    geometryPart(new BoxGeometry(0.072, 0.019, 0.12), {
+      position: [0, 0, -0.34],
+    }),
+  ], steelDark);
   fuller.name = 'BladeFuller';
-  fuller.position.set(0, 0.011, -0.34 - bladeLength * 0.43);
   root.add(fuller);
-
-  const shoulders = new Mesh(new BoxGeometry(0.072, 0.019, 0.12), steelDark);
-  shoulders.name = 'BladeShoulders';
-  shoulders.position.z = -0.34;
-  root.add(shoulders);
-
-  const tip = new Mesh(new ConeGeometry(0.038, 0.18, 4), steel);
-  tip.name = 'SwordPoint';
-  tip.rotation.x = Math.PI / 2;
-  tip.rotation.y = Math.PI / 4;
-  tip.position.z = -0.34 - bladeLength - 0.09;
-  root.add(tip);
-
-  const pommel = new Mesh(new SphereGeometry(0.052, 7, 5), brass);
-  pommel.name = 'SwordPommel';
-  pommel.position.z = 0.1;
-  pommel.scale.z = 0.78;
-  root.add(pommel);
+  addComponentAlias(root, 'BladeShoulders', [0, 0, -0.34]);
 
   createGripAnchors(root, {
     primary: [0, 0, 0.015],
@@ -322,11 +332,19 @@ function createSpear(root, { wood, leather, steel, steelDark }) {
   grip.position.z = -0.06;
   root.add(grip);
 
-  const socket = new Mesh(new CylinderGeometry(0.034, 0.024, 0.22, 8), steelDark);
+  const socket = createMergedMesh([
+    geometryPart(new CylinderGeometry(0.034, 0.024, 0.22, 8), {
+      position: [0, 0, -2.12],
+      rotation: [Math.PI / 2, 0, 0],
+    }),
+    geometryPart(new ConeGeometry(0.034, 0.16, 6), {
+      position: [0, 0, 0.37],
+      rotation: [Math.PI / 2, 0, 0],
+    }),
+  ], steelDark);
   socket.name = 'SpearSocket';
-  socket.rotation.x = Math.PI / 2;
-  socket.position.z = -2.12;
   root.add(socket);
+  addComponentAlias(root, 'SpearButtCap', [0, 0, 0.37]);
 
   const head = new Mesh(new ConeGeometry(0.062, 0.32, 4), steel);
   head.name = 'SpearHead';
@@ -335,16 +353,40 @@ function createSpear(root, { wood, leather, steel, steelDark }) {
   head.position.z = -2.39;
   root.add(head);
 
-  const buttCap = new Mesh(new ConeGeometry(0.034, 0.16, 6), steelDark);
-  buttCap.name = 'SpearButtCap';
-  buttCap.rotation.x = Math.PI / 2;
-  buttCap.position.z = 0.37;
-  root.add(buttCap);
-
   createGripAnchors(root, {
     primary: [0, 0, 0.1],
     secondary: [0, 0, -0.2],
   });
+}
+
+function geometryPart(geometry, {
+  position = [0, 0, 0],
+  rotation = [0, 0, 0],
+  scale = [1, 1, 1],
+} = {}) {
+  const transform = new Group();
+  transform.position.set(...position);
+  transform.rotation.set(...rotation);
+  transform.scale.set(...scale);
+  transform.updateMatrix();
+  geometry.applyMatrix4(transform.matrix);
+  return geometry;
+}
+
+function createMergedMesh(geometries, material) {
+  const geometry = mergeGeometries(geometries, false);
+  geometries.forEach((part) => part.dispose());
+  if (!geometry) throw new Error('Unable to merge viewmodel geometry');
+  return new Mesh(geometry, material);
+}
+
+function addComponentAlias(parent, name, position) {
+  const alias = new Group();
+  alias.name = name;
+  alias.position.set(...position);
+  alias.userData.mergedComponent = true;
+  parent.add(alias);
+  return alias;
 }
 
 function applyPose(weaponRoot, rightArm, leftArm, pose = {}) {

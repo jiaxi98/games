@@ -88,6 +88,88 @@ describe('SoldierActor visuals', () => {
     actor.dispose();
   });
 
+  it('switches LOD1 to a bounded simplified hierarchy while retaining role silhouettes', () => {
+    const actors = [
+      createSoldierActor({
+        id: 'mid-spearman',
+        factionId: FactionId.SAINT_ORENS,
+        role: SoldierRole.SPEARMAN,
+      }),
+      createSoldierActor({
+        id: 'mid-man-at-arms',
+        factionId: FactionId.SAINT_ORENS,
+        role: SoldierRole.MAN_AT_ARMS,
+      }),
+      createCaptainActor({
+        id: 'mid-captain',
+        factionId: FactionId.VANGUARD,
+      }),
+      createSoldierActor({
+        id: 'mid-standard',
+        factionId: FactionId.VANGUARD,
+        role: SoldierRole.STANDARD_BEARER,
+      }),
+    ];
+
+    for (const actor of actors) {
+      expect(actor.midRoot).toBeTruthy();
+      expect(actor.detailedRoot).toBeTruthy();
+      actor.setLod(1);
+      expect(actor.midRoot.visible).toBe(true);
+      expect(actor.detailedRoot.visible).toBe(false);
+      expect(visibleMeshCount(actor.midRoot)).toBeGreaterThanOrEqual(5);
+      expect(visibleMeshCount(actor.midRoot)).toBeLessThanOrEqual(9);
+      expect(visibleMeshCount(actor.detailedRoot)).toBe(0);
+      expect(actor.midRoot.getObjectByName('MidBody')).toBeTruthy();
+      expect(actor.midRoot.getObjectByName('MidHelmet')).toBeTruthy();
+      expect(actor.midRoot.getObjectByName('MidArms')).toBeTruthy();
+    }
+
+    const [spearman, manAtArms, captain, standardBearer] = actors;
+    expect(spearman.midRoot.getObjectByName('MidSpear')).toBeTruthy();
+    expect(spearman.midRoot.getObjectByName('MidShield')).toBeFalsy();
+    expect(manAtArms.midRoot.getObjectByName('MidSword')).toBeTruthy();
+    expect(manAtArms.midRoot.getObjectByName('MidShield')).toBeTruthy();
+    expect(captain.midRoot.getObjectByName('MidStandardPole')).toBeTruthy();
+    expect(captain.midRoot.getObjectByName('MidStandardBanner')).toBeTruthy();
+    expect(captain.midRoot.getObjectByName('MidShield')).toBeTruthy();
+    expect(standardBearer.midRoot.getObjectByName('MidStandardPole')).toBeTruthy();
+    expect(standardBearer.midRoot.getObjectByName('MidStandardBanner')).toBeTruthy();
+
+    actors.forEach((actor) => actor.dispose());
+  });
+
+  it('updates the simplified pose without exposing the detailed hierarchy', () => {
+    const actor = createSoldierActor({
+      id: 'mid-pose',
+      factionId: FactionId.SAINT_ORENS,
+      role: SoldierRole.MAN_AT_ARMS,
+    });
+    actor.setLod(1);
+    const initialWeaponRotation = actor._midParts.weapon.rotation.clone();
+
+    actor.object3d.position.z += 0.34;
+    actor.update(0.1, {
+      speed: 3.4,
+      combatPose: {
+        state: WeaponState.WINDUP,
+        progress: 1,
+        attack: { arc: [0.9, -0.6] },
+      },
+    });
+
+    expect(actor.detailedRoot.visible).toBe(false);
+    expect(actor.midRoot.visible).toBe(true);
+    expect(Math.abs(actor._midParts.leftLeg.rotation.x)).toBeGreaterThan(0.05);
+    expect(Math.abs(actor._midParts.weapon.rotation.z - initialWeaponRotation.z))
+      .toBeGreaterThan(0.2);
+
+    actor.setLod(2);
+    expect(actor.detailedRoot.visible).toBe(false);
+    expect(actor.midRoot.visible).toBe(false);
+    actor.dispose();
+  });
+
   it('separates the near silhouette and rotates the torso into weapon-specific anticipation', () => {
     const sword = createSoldierActor({
       id: 'sword-windup',
@@ -383,4 +465,13 @@ function collapseOriginDisplacement(actor) {
   actor.object3d.updateWorldMatrix(true, true);
   const origin = actor._parts.collapseRoot.getWorldPosition(new Vector3());
   return horizontalLength(origin.sub(actor.object3d.position));
+}
+
+function visibleMeshCount(root) {
+  if (!root.visible) return 0;
+  let count = 0;
+  root.traverseVisible((object) => {
+    if (object.isMesh) count += 1;
+  });
+  return count;
 }
