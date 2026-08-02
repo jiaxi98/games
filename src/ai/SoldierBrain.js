@@ -281,6 +281,23 @@ export class SoldierBrain {
       this.combat.stateTime >= this.combat.attack.windup * 0.48;
   }
 
+  configureEncounter({
+    aggression,
+    damageScale,
+    telegraphScale,
+    attackDelay,
+  } = {}) {
+    if (Number.isFinite(aggression)) this.aggression = Math.max(0, Math.min(1, aggression));
+    if (Number.isFinite(attackDelay)) this.attackDelay = Math.max(this.attackDelay, attackDelay);
+    if (Number.isFinite(damageScale) || Number.isFinite(telegraphScale)) {
+      this.combat.weapon = createAiWeaponDefinition(
+        this.actor.weapon,
+        telegraphScale ?? 1.75,
+        damageScale ?? (this.actor.role === 'captain' ? 0.72 : 0.86),
+      );
+    }
+  }
+
   _releaseTarget() {
     this.attackCoordinator?.release(this.actor);
     this.target = null;

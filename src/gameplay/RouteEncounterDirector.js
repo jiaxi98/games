@@ -148,11 +148,17 @@ export function createRouteEncounterDirector({
       position: landmarks.bridge,
       radius: 72,
       captain,
-      squads: [squads.CAPTAIN_GUARD],
+    squads: [squads.CAPTAIN_GUARD],
       onActivate() {
         const duelPoint = offset(landmarks.bridge, 5, 14);
         squads.CAPTAIN_GUARD?.issueOrder(SquadOrder.HOLD, { target: duelPoint });
         squads.BRIDGE_GUARD?.issueOrder(SquadOrder.RETREAT);
+        captain.brain?.configureEncounter?.({
+          aggression: 0.58,
+          damageScale: 0.48,
+          telegraphScale: 2.25,
+          attackDelay: 1.25,
+        });
         events?.emit?.('battlefield:stage-activated', {
           id: 'captain-encounter',
           squadIds: [squads.CAPTAIN_GUARD?.id].filter(Boolean),
@@ -165,6 +171,13 @@ export function createRouteEncounterDirector({
           onEnter() {
             squads.BRIDGE_GUARD?.issueOrder(SquadOrder.BRACE);
             squads.CAPTAIN_GUARD?.issueOrder(SquadOrder.HOLD);
+            squads.CAPTAIN_GUARD?.morale.rally(0.12);
+            captain.brain?.configureEncounter?.({
+              aggression: 0.58,
+              damageScale: 0.48,
+              telegraphScale: 2.25,
+              attackDelay: 1.25,
+            });
           },
         },
         {
@@ -172,9 +185,13 @@ export function createRouteEncounterDirector({
           atOrBelow: 0.66,
           onEnter() {
             squads.CAPTAIN_GUARD?.morale.rally(0.18);
-            squads.CAPTAIN_GUARD?.issueOrder(SquadOrder.ADVANCE, {
-              target: player?.position?.clone?.() ?? landmarks.bridge,
+            captain.brain?.configureEncounter?.({
+              aggression: 0.68,
+              damageScale: 0.52,
+              telegraphScale: 2.05,
+              attackDelay: 1,
             });
+            squads.CAPTAIN_GUARD?.issueOrder(SquadOrder.HOLD);
           },
         },
         {
@@ -183,9 +200,13 @@ export function createRouteEncounterDirector({
           onEnter() {
             squads.BRIDGE_GUARD?.issueOrder(SquadOrder.RETREAT);
             squads.CAPTAIN_GUARD?.morale.rally(0.28);
-            squads.CAPTAIN_GUARD?.issueOrder(SquadOrder.ADVANCE, {
-              target: player?.position?.clone?.() ?? landmarks.bridge,
+            captain.brain?.configureEncounter?.({
+              aggression: 0.76,
+              damageScale: 0.58,
+              telegraphScale: 1.9,
+              attackDelay: 0.9,
             });
+            squads.CAPTAIN_GUARD?.issueOrder(SquadOrder.HOLD);
           },
         },
       ],

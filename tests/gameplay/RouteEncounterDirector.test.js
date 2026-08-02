@@ -100,7 +100,7 @@ describe('RouteEncounterDirector', () => {
       playerPosition: landmarks.bridge,
     });
     expect(route.director.getCaptainPhase()).toBe('pressed');
-    expect(route.squads.CAPTAIN_GUARD.order).toBe(SquadOrder.ADVANCE);
+    expect(route.squads.CAPTAIN_GUARD.order).toBe(SquadOrder.HOLD);
 
     captain.combatant.health = captain.combatant.maxHealth * 0.25;
     route.director.update(0.1, {
@@ -109,7 +109,7 @@ describe('RouteEncounterDirector', () => {
     });
     expect(route.director.getCaptainPhase()).toBe('desperate');
     expect(route.squads.BRIDGE_GUARD.order).toBe(SquadOrder.RETREAT);
-    expect(route.squads.CAPTAIN_GUARD.order).toBe(SquadOrder.ADVANCE);
+    expect(route.squads.CAPTAIN_GUARD.order).toBe(SquadOrder.HOLD);
 
     route.dispose();
     simulation.dispose();

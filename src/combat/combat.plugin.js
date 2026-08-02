@@ -117,6 +117,12 @@ export function install(context) {
   controller.addEventListener('attackstart', emitSwing);
   const emitPlayerImpact = (event) => {
     const damagePayload = normalizeIncomingDamage(event, player, camera);
+    if (
+      damagePayload.outcome === 'avoided'
+      || ((event.result?.damage ?? 0) <= 0 && !['blocked', 'parried', 'guard-broken'].includes(damagePayload.outcome))
+    ) {
+      return;
+    }
     rig.applyImpulse?.({
       intensity: damagePayload.intensity,
       direction: damagePayload.direction,
@@ -134,6 +140,29 @@ export function install(context) {
       max: combatant.maxHealth,
       ratio: combatant.health / combatant.maxHealth,
     });
+    if (
+      combatant.alive
+      && combatant.health / combatant.maxHealth <= 0.22
+      && app.gameplay?.getState?.().stage === 'captain'
+      && !combatant._captainSecondWindUsed
+    ) {
+      combatant._captainSecondWindUsed = true;
+      combatant.health = Math.min(
+        combatant.maxHealth,
+        combatant.health + combatant.maxHealth * 0.28,
+      );
+      combatant.restoreStamina(combatant.maxStamina * 0.45);
+      events.emit('player:health', {
+        value: combatant.health,
+        max: combatant.maxHealth,
+        ratio: combatant.health / combatant.maxHealth,
+      });
+      events.emit('subtitle', {
+        speaker: 'Martin',
+        text: 'Not here. One last push.',
+        duration: 2.1,
+      });
+    }
   };
   const emitPlayerDeath = (event) => {
     events.emit('player:death', event);

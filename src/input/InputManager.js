@@ -6,6 +6,7 @@ const DEFAULT_BINDINGS = Object.freeze({
   left: ['KeyA', 'ArrowLeft'],
   right: ['KeyD', 'ArrowRight'],
   jump: ['Space'],
+  evade: ['AltLeft', 'AltRight'],
   sprint: ['ShiftLeft', 'ShiftRight'],
   crouch: ['KeyC', 'ControlLeft', 'ControlRight'],
   interact: ['KeyE'],

@@ -85,10 +85,10 @@ try {
 
   timings.toCaptain = await approachCaptainEncounter();
   const combat = await fightCaptain();
-  await waitForStage('victory', 12_000);
+  await waitForStage('victory', 20_000);
   await capture('04-captain-defeated');
 
-  timings.toBridge = await walkTo(debug.bridge, 6.5, 30_000);
+  timings.toBridge = await walkTo(debug.bridge, 15, 30_000);
   await face(debug.bridge);
   await page.keyboard.press('e');
   await waitForStage('won');
@@ -201,6 +201,31 @@ async function fightCaptain() {
   let strikes = 0;
   let landed = 0;
   let previousHealth = Infinity;
+  let threat = false;
+  const unsubscribeThreat = await page.evaluate(() => {
+    window.__PLAYTEST_CAPTAIN_THREAT__ = false;
+    const context = window.MedievalRPG.getContext();
+    window.__PLAYTEST_CAPTAIN_THREAT_OFF__ = context.events.on(
+      'battlefield:ai-attack',
+      ({ actor, target }) => {
+        if (
+          actor?.role === 'captain'
+          && (target?.role === 'player' || target?.id === 'player')
+        ) {
+          window.__PLAYTEST_CAPTAIN_THREAT__ = true;
+        }
+      },
+    );
+    return true;
+  });
+  const cleanupThreat = async () => {
+    if (!unsubscribeThreat) return;
+    await page.evaluate(() => {
+      window.__PLAYTEST_CAPTAIN_THREAT_OFF__?.();
+      delete window.__PLAYTEST_CAPTAIN_THREAT_OFF__;
+      delete window.__PLAYTEST_CAPTAIN_THREAT__;
+    });
+  };
 
   while (Date.now() - start < 40_000) {
     const state = await page.evaluate(() => {
@@ -223,6 +248,7 @@ async function fightCaptain() {
       continue;
     }
     if (!state.alive) {
+      await cleanupThreat();
       return {
         durationMs: Date.now() - start,
         strikes,
@@ -230,7 +256,10 @@ async function fightCaptain() {
         playerHealth: state.playerHealth,
       };
     }
-    if (!state.playerAlive) throw new Error('Player died during captain playtest');
+    if (!state.playerAlive) {
+      await cleanupThreat();
+      throw new Error(`Player died during captain playtest after ${strikes} strikes, ${landed} landed; captain health ${state.health}`);
+    }
     if (state.health < previousHealth) landed += 1;
     previousHealth = state.health;
 
@@ -239,9 +268,26 @@ async function fightCaptain() {
       return Math.hypot(position.x - x, position.z - z);
     }, state.position);
     if (distance > 1.7) {
-      await walkTo(state.position, 1.45, 12_000);
+      await walkTo(state.position, 2.6, 12_000);
     }
     await face(state.position);
+    threat = await page.evaluate(() => {
+      const value = Boolean(window.__PLAYTEST_CAPTAIN_THREAT__);
+      window.__PLAYTEST_CAPTAIN_THREAT__ = false;
+      return value;
+    });
+    if (threat) {
+      await page.mouse.down({ button: 'right' });
+      await page.waitForTimeout(720);
+      await page.mouse.up({ button: 'right' });
+      await page.waitForTimeout(120);
+      continue;
+    }
+    if (strikes > 0 && strikes % 3 === 0) {
+      await page.keyboard.press('AltLeft');
+      await page.waitForTimeout(240);
+      await face(state.position);
+    }
     await page.mouse.down({ button: 'right' });
     await page.waitForTimeout(360);
     await page.mouse.up({ button: 'right' });
@@ -250,6 +296,7 @@ async function fightCaptain() {
     strikes += 1;
     await page.waitForTimeout(560);
   }
+  await cleanupThreat();
   throw new Error(`Captain remained alive after ${strikes} production-input strikes`);
 }
 

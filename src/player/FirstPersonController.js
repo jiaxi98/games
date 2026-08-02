@@ -27,6 +27,9 @@ const DEFAULT_CONFIG = Object.freeze({
   jumpSpeed: 8.1,
   lookSensitivity: 0.0018,
   maxPitch: MathUtils.degToRad(88),
+  evadeSpeed: 10.5,
+  evadeDuration: 0.22,
+  evadeCooldown: 0.85,
 });
 
 export class FirstPersonController {
@@ -61,6 +64,9 @@ export class FirstPersonController {
       kick: 0,
     };
     this.enabled = true;
+    this.evadeRemaining = 0;
+    this.evadeCooldownRemaining = 0;
+    this.evadeDirection = new Vector3();
     this.#syncCamera(0, 1);
   }
 
@@ -102,8 +108,27 @@ export class FirstPersonController {
 
     this.previousPosition.copy(this.position);
     this.#updateStance(fixedDelta);
+    this.evadeRemaining = Math.max(0, this.evadeRemaining - fixedDelta);
+    this.evadeCooldownRemaining = Math.max(0, this.evadeCooldownRemaining - fixedDelta);
 
     const axes = this.input.getMovementAxes();
+    if (
+      this.grounded
+      && this.input.wasPressed('evade')
+      && this.evadeCooldownRemaining <= 0
+    ) {
+      _forward.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+      _right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+      const evadeX = axes.x || 0;
+      const evadeY = axes.y || -1;
+      this.evadeDirection
+        .copy(_forward)
+        .multiplyScalar(evadeY)
+        .addScaledVector(_right, evadeX)
+        .normalize();
+      this.evadeRemaining = this.config.evadeDuration;
+      this.evadeCooldownRemaining = this.config.evadeCooldown;
+    }
     const wantsMovement = axes.x !== 0 || axes.y !== 0;
     const wantsSprint = this.input.isDown('sprint') && axes.y > 0 && !this.crouching;
     const speed = this.crouching
@@ -118,12 +143,16 @@ export class FirstPersonController {
       .addScaledVector(_right, axes.x);
     if (_wishDirection.lengthSq() > 1) _wishDirection.normalize();
 
-    _targetHorizontal.copy(_wishDirection).multiplyScalar(speed);
+    _targetHorizontal.copy(
+      this.evadeRemaining > 0 ? this.evadeDirection : _wishDirection,
+    ).multiplyScalar(
+      this.evadeRemaining > 0 ? this.config.evadeSpeed : speed,
+    );
     const acceleration = this.grounded
       ? this.config.groundAcceleration
       : this.config.airAcceleration;
 
-    if (wantsMovement) {
+    if (wantsMovement || this.evadeRemaining > 0) {
       this.velocity.x = moveToward(
         this.velocity.x,
         _targetHorizontal.x,
