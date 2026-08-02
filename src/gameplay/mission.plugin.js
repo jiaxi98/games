@@ -163,10 +163,10 @@ function createMissionSystem(context) {
   stageSquad(alliedSquad, landmarks.hedgerowRally, new Vector3(0, 0, -1));
   stageSquad(enemySquad, landmarks.spearLine, new Vector3(0, 0, 1));
   if (captain?.combatant) {
-    // The officer participates in the spear-line pressure but remains a
-    // distinct climax target instead of being accidentally removed during
-    // the preceding formation objective.
-    captain.combatant.health = captain.combatant.maxHealth * 12;
+    // The captain withdraws behind the spear line until his authored
+    // encounter begins. This keeps combat rules honest instead of hiding
+    // phase gating behind an inflated health pool.
+    captain.combatant.targetable = false;
   }
   alliedSquad?.issueOrder?.('hold');
   enemySquad?.issueOrder?.('hold');
@@ -273,6 +273,7 @@ function createMissionSystem(context) {
       if (captain?.combatant) {
         if (!captain.combatant.alive) captain.combatant.reset();
         captain.combatant.health = captain.combatant.maxHealth;
+        captain.combatant.targetable = true;
       }
       battlefield.triggerReversal({
         id: 'spear-line-broken',

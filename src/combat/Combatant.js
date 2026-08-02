@@ -22,6 +22,7 @@ export class Combatant extends EventDispatcher {
     radius = 0.34,
     attackOriginHeight = 1.34,
     hurtVolumes = null,
+    targetable = true,
   } = {}) {
     super();
     this.id = id;
@@ -44,6 +45,7 @@ export class Combatant extends EventDispatcher {
     this.hurtVolumes = normalizeHurtVolumes(
       hurtVolumes ?? createDefaultHurtVolumes(this.armor, height, radius),
     );
+    this.targetable = targetable;
     this.guard = null;
     this.alive = true;
     this.staggerRemaining = 0;
@@ -99,6 +101,14 @@ export class Combatant extends EventDispatcher {
 
   receiveImpact(impact) {
     if (!this.alive) return { outcome: 'dead', damage: 0, killed: true };
+    if (!this.targetable) {
+      return withImpactMetadata({
+        outcome: 'invulnerable',
+        damage: 0,
+        killed: false,
+        staggered: false,
+      }, impact, this.maxHealth);
+    }
 
     const guardResult = this._resolveGuard(impact);
     if (guardResult) {

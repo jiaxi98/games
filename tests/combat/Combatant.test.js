@@ -3,6 +3,22 @@ import { Vector3 } from 'three';
 import { Combatant, DamageType } from '../../src/combat/Combatant.js';
 
 describe('Combatant', () => {
+  it('can be made non-targetable without inflating its health', () => {
+    const combatant = new Combatant({ maxHealth: 100, targetable: false });
+    const result = combatant.receiveImpact({
+      damage: 500,
+      damageType: DamageType.BLUNT,
+    });
+
+    expect(result.outcome).toBe('invulnerable');
+    expect(combatant.health).toBe(100);
+    combatant.targetable = true;
+    expect(combatant.receiveImpact({
+      damage: 20,
+      damageType: DamageType.BLUNT,
+    }).damage).toBeGreaterThan(0);
+  });
+
   it('applies armor mitigation and death through the shared impact interface', () => {
     const target = new Combatant({
       maxHealth: 40,

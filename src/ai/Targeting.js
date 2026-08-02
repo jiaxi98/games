@@ -23,6 +23,7 @@ export function selectTarget(actor, candidates, {
       candidate === actor ||
       candidate.factionId === actor.factionId ||
       !candidate.combatant?.alive ||
+      candidate.combatant?.targetable === false ||
       (canTarget && !canTarget(candidate))
     ) continue;
 
