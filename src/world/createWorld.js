@@ -262,6 +262,7 @@ export function createWorld(scene, renderer, options = {}) {
   let bannerAnimationElapsed = 0;
   const bannerAnimationInterval = config.quality === 'low' ? 1 / 12 : 1 / 20;
   const wind = new THREE.Vector3(1, 0, 0.15).normalize();
+  let weatherIntensity = config.weather ? 1 : 0;
 
   function sampleHeight(x, z) {
     if (bridge.walkableBounds.containsPoint(new THREE.Vector2(x, z))) {
@@ -338,7 +339,11 @@ export function createWorld(scene, renderer, options = {}) {
       return target.copy(wind).multiplyScalar(windStrength);
     },
     setWeatherIntensity(value) {
-      atmosphere.setWeatherIntensity(value);
+      weatherIntensity = THREE.MathUtils.clamp(value, 0, 1);
+      atmosphere.setWeatherIntensity(weatherIntensity);
+    },
+    getWeatherIntensity() {
+      return weatherIntensity;
     },
     setBattleIntensity(value) {
       battleIntensity = THREE.MathUtils.clamp(value, 0, 1);

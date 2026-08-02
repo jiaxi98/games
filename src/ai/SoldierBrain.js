@@ -39,7 +39,11 @@ export class SoldierBrain {
     this._combatants = [];
     this.combat = new MeleeCombatController({
       owner: actor.combatant,
-      weapon: createAiWeaponDefinition(actor.weapon, attackTelegraphScale),
+      weapon: createAiWeaponDefinition(
+        actor.weapon,
+        attackTelegraphScale,
+        actor.role === 'captain' ? 0.72 : 0.86,
+      ),
       queryTargets: (origin, range) => this._queryCombatants(origin, range),
       getOrigin: () => actor.object3d.position,
       getForward: () => actor.forward,
@@ -169,7 +173,8 @@ export class SoldierBrain {
     if (this.attackDelay <= 0 && this.combat.state === WeaponState.IDLE) {
       const heavy = this.actor.role === 'captain' && this.rng() < 0.22;
       if (heavy ? this.combat.heavyAttack() : this.combat.lightAttack()) {
-        this.attackDelay = 0.5 + this.rng() * (1.1 - this.aggression * 0.45);
+        const baseDelay = this.actor.role === 'captain' ? 1.05 : 0.62;
+        this.attackDelay = baseDelay + this.rng() * (1.35 - this.aggression * 0.35);
       }
     }
   }
@@ -262,7 +267,9 @@ export class SoldierBrain {
       overlaps += 1;
     }
     if (overlaps === 0) return;
-    const strength = planted ? 0 : Math.min(8.5, 4.2 + overlaps * 0.8);
+    const strength = planted && !playerTarget
+      ? 0
+      : Math.min(playerTarget ? 13 : 8.5, (playerTarget ? 7.2 : 4.2) + overlaps * 0.8);
     this.actor.velocity.x += pushX * strength * Math.min(1, dt * 12);
     this.actor.velocity.z += pushZ * strength * Math.min(1, dt * 12);
   }
@@ -292,7 +299,7 @@ function hash01(value) {
   return (hashSigned(value) + 1) * 0.5;
 }
 
-function createAiWeaponDefinition(weapon, telegraphScale) {
+function createAiWeaponDefinition(weapon, telegraphScale, damageScale = 1) {
   const definition = typeof weapon === 'string' ? getWeaponDefinition(weapon) : weapon;
   const scale = Math.max(1, telegraphScale);
   return {
@@ -301,11 +308,15 @@ function createAiWeaponDefinition(weapon, telegraphScale) {
       ...attack,
       windup: attack.windup * scale,
       recover: attack.recover * 1.08,
+      damage: attack.damage * damageScale,
+      poiseDamage: (attack.poiseDamage ?? attack.damage * 0.62) * damageScale,
     })),
     heavy: {
       ...definition.heavy,
       windup: definition.heavy.windup * Math.max(1.2, scale * 0.92),
       recover: definition.heavy.recover * 1.1,
+      damage: definition.heavy.damage * damageScale,
+      poiseDamage: (definition.heavy.poiseDamage ?? definition.heavy.damage * 0.62) * damageScale,
     },
   };
 }

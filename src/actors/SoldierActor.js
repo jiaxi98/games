@@ -1,6 +1,8 @@
 import {
+  Box3,
   Group,
   Mesh,
+  Quaternion,
   Vector3,
 } from 'three';
 import { Combatant, DamageType } from '../combat/Combatant.js';
@@ -71,9 +73,11 @@ export class SoldierActor {
     this.height = role === SoldierRole.CAPTAIN ? 2.18 : 2.08;
     this.mass = role === SoldierRole.CAPTAIN ? 1.35 : 1;
     this._time = (hashString(String(id ?? 'soldier')) % 1000) * 0.013;
+    this._deathVariant = hashString(String(id ?? role)) % 3;
     this._materials = [];
     this._geometries = [];
     this._parts = buildSoldierMesh(this.object3d, this, getFaction(factionId));
+    this.object3d.userData.deathVariant = this._deathVariant;
 
     const roleHealth = role === SoldierRole.CAPTAIN ? 155 : role === SoldierRole.MAN_AT_ARMS ? 112 : 88;
     const roleStamina = role === SoldierRole.CAPTAIN ? 125 : 92;
@@ -144,12 +148,12 @@ export class SoldierActor {
 
     if (!this.combatant.alive) {
       this._deathTime = (this._deathTime ?? 0) + dt;
-      const side = (hashString(String(this.id)) & 1) ? 1 : -1;
-      this.object3d.rotation.z += (side * 1.48 - this.object3d.rotation.z) * Math.min(1, dt * 4);
-      this.object3d.position.y = Math.max(-0.55, this.object3d.position.y - dt * 0.35);
+      animateDeathCollapse(this.object3d, this._parts, this._deathVariant, this._deathTime);
       return;
     }
 
+    this._parts.collapseRoot.position.set(0, 0, 0);
+    this._parts.collapseRoot.rotation.set(0, 0, 0);
     const stride = Math.min(1, speed / 3.4);
     const gait = Math.sin(this._time * (5.5 + speed * 1.3));
     const stepLift = Math.max(0, gait);
@@ -157,12 +161,12 @@ export class SoldierActor {
     this._parts.rightLeg.rotation.x = -gait * 0.48 * stride;
     this._parts.leftLeg.position.y = 0.75 + stepLift * 0.035 * stride;
     this._parts.rightLeg.position.y = 0.75 + Math.max(0, -gait) * 0.035 * stride;
-    this._parts.body.position.y = 1.22 + Math.abs(gait) * 0.022 * stride;
-    this._parts.body.rotation.y = gait * 0.035 * stride;
+    this._parts.body.position.y = Math.abs(gait) * 0.022 * stride;
+    this._parts.body.rotation.y = 0;
     this._parts.body.rotation.z = moraleState === 'routed' ? gait * 0.09 : gait * 0.018 * stride;
     this._parts.head.rotation.y = -gait * 0.025 * stride;
     this._parts.head.rotation.z = moraleState === 'routed' ? -gait * 0.04 : 0;
-    animateArms(this._parts, combatPose, gait, stride, this.weapon);
+    animateCombatBody(this._parts, combatPose, gait, stride, this.weapon, this.role);
 
     if (this._impactFlash > 0) {
       this._parts.body.rotation.x = -0.14;
@@ -187,6 +191,11 @@ function buildSoldierMesh(root, actor, faction) {
   group.name = 'Body';
   root.add(group);
 
+  const upperBody = new Group();
+  upperBody.name = 'UpperBodyPivot';
+  upperBody.position.y = 1.22;
+  group.add(upperBody);
+
   const cloth = material(actor, faction.cloth, 1);
   const clothSecondary = material(actor, faction.clothSecondary, 0.96);
   const heraldry = material(actor, faction.accent, 0.82, 0.05);
@@ -205,8 +214,7 @@ function buildSoldierMesh(root, actor, faction) {
   group.add(leftLeg, rightLeg);
 
   const body = new Group();
-  body.position.y = 1.22;
-  group.add(body);
+  upperBody.add(body);
   const torso = mesh(actor, sharedCapsule(0.3, 0.58, 3, 7), cloth);
   torso.scale.set(1, 1, 0.72);
   torso.position.y = 0.18;
@@ -243,6 +251,14 @@ function buildSoldierMesh(root, actor, faction) {
   chestMark.position.set(0, 0.27, 0.286);
   chestMark.name = 'FactionChestMark';
   body.add(chestMark);
+  const shoulderYoke = mesh(
+    actor,
+    sharedBox(actor.role === SoldierRole.CAPTAIN ? 0.72 : 0.64, 0.12, 0.19),
+    actor.role === SoldierRole.CAPTAIN ? heraldry : clothSecondary,
+  );
+  shoulderYoke.position.set(0, 0.47, 0.075);
+  shoulderYoke.name = actor.role === SoldierRole.CAPTAIN ? 'CaptainMantle' : 'ShoulderYoke';
+  body.add(shoulderYoke);
 
   if (actor.role === SoldierRole.MAN_AT_ARMS || actor.role === SoldierRole.CAPTAIN) {
     const breastplate = mesh(actor, sharedCapsule(0.265, 0.36, 2, 8), iron);
@@ -263,9 +279,9 @@ function buildSoldierMesh(root, actor, faction) {
   }
 
   const head = new Group();
-  head.position.set(0, 1.98, 0);
+  head.position.set(0, 0.76, 0);
   head.name = 'Head';
-  group.add(head);
+  upperBody.add(head);
   const coif = mesh(actor, sharedSphere(0.205, 8, 5), mail);
   coif.position.y = -0.035;
   coif.scale.set(1.03, 1.18, 0.98);
@@ -299,11 +315,11 @@ function buildSoldierMesh(root, actor, faction) {
   const armored = actor.role === SoldierRole.MAN_AT_ARMS || actor.role === SoldierRole.CAPTAIN;
   const leftArm = arm(actor, cloth, armored ? iron : leather, skin, armored ? iron : null);
   const rightArm = arm(actor, cloth, armored ? iron : leather, skin, armored ? iron : null);
-  leftArm.position.set(-0.38, 1.57, 0);
-  rightArm.position.set(0.38, 1.57, 0);
+  leftArm.position.set(-0.38, 0.35, 0);
+  rightArm.position.set(0.38, 0.35, 0);
   leftArm.name = 'LeftArm';
   rightArm.name = 'RightArm';
-  group.add(leftArm, rightArm);
+  upperBody.add(leftArm, rightArm);
 
   const weaponRoot = new Group();
   weaponRoot.name = 'WeaponRoot';
@@ -353,8 +369,9 @@ function buildSoldierMesh(root, actor, faction) {
     weaponRoot.add(pommel);
   }
 
+  let shield = null;
   if (armored) {
-    const shield = createShield(actor, faction, cloth, clothSecondary, heraldry, leather, iron);
+    shield = createShield(actor, faction, cloth, clothSecondary, heraldry, leather, iron);
     shield.position.set(0, -0.23, 0.12);
     shield.rotation.set(-0.08, 0.04, 0);
     leftArm.add(shield);
@@ -371,6 +388,8 @@ function buildSoldierMesh(root, actor, faction) {
     }
   });
   return {
+    collapseRoot: group,
+    upperBody,
     body,
     head,
     leftArm,
@@ -380,6 +399,7 @@ function buildSoldierMesh(root, actor, faction) {
     leftLeg,
     rightLeg,
     weaponRoot,
+    shield,
   };
 }
 
@@ -531,21 +551,74 @@ function defaultArmor(role) {
   return { cut: 0.12, pierce: 0.06, blunt: 0.03 };
 }
 
-function animateArms(parts, pose, gait, stride, weapon) {
+function animateCombatBody(parts, pose, gait, stride, weapon, role) {
+  animateArms(parts, pose, gait, stride, weapon, role);
+  const state = pose?.state ?? WeaponState.IDLE;
+  const t = smoothstep(pose?.progress ?? 0);
+  const side = pose?.attack?.arc?.[0] < 0 ? -1 : 1;
+  const captain = role === SoldierRole.CAPTAIN;
+
+  parts.upperBody.position.set(0, 0, 0);
+  parts.upperBody.rotation.x = 0;
+  parts.upperBody.rotation.y = gait * 0.035 * stride;
+  parts.upperBody.rotation.z = captain ? -0.035 : 0;
+  parts.body.position.x = 0;
+  parts.head.position.x = 0;
+
+  if (state === WeaponState.WINDUP) {
+    const thrust = weapon === 'spear' || pose?.attack?.thrust;
+    const vertical = pose?.attack?.vertical;
+    parts.upperBody.rotation.y += thrust
+      ? side * (0.1 + t * 0.2)
+      : side * (0.14 + t * (vertical ? 0.34 : 0.52));
+    parts.upperBody.rotation.z += thrust
+      ? side * -0.035 * t
+      : side * (vertical ? -0.08 : -0.14) * t;
+    parts.body.position.x = side * (vertical ? 0.025 : 0.055) * t;
+    parts.head.rotation.y = -parts.upperBody.rotation.y * 0.62;
+  } else if (state === WeaponState.ACTIVE) {
+    const thrust = weapon === 'spear' || pose?.attack?.thrust;
+    const vertical = pose?.attack?.vertical;
+    parts.upperBody.rotation.y += thrust
+      ? side * (0.22 - t * 0.36)
+      : side * ((vertical ? 0.28 : 0.48) - t * (vertical ? 0.46 : 0.86));
+    parts.upperBody.rotation.z += thrust
+      ? side * -0.05
+      : side * (vertical ? -0.1 + t * 0.16 : -0.14 + t * 0.25);
+    parts.body.position.x = side * (1 - t) * (vertical ? 0.03 : 0.06);
+    parts.head.rotation.y = -parts.upperBody.rotation.y * 0.48;
+  } else if (state === WeaponState.RECOVERY) {
+    parts.upperBody.rotation.y += side * 0.2 * (1 - t);
+    parts.upperBody.rotation.z += side * 0.08 * (1 - t);
+    parts.head.rotation.y = -parts.upperBody.rotation.y * 0.42;
+  } else if (state === WeaponState.BLOCKING) {
+    parts.upperBody.rotation.y += captain ? -0.18 : -0.1;
+    parts.upperBody.rotation.z += captain ? -0.08 : -0.035;
+    parts.body.position.x = captain ? -0.04 : -0.02;
+    parts.head.rotation.y = captain ? 0.12 : 0.07;
+  } else if (captain) {
+    parts.upperBody.rotation.y -= 0.11;
+    parts.body.position.x = -0.025;
+    parts.head.rotation.y = 0.09 - gait * 0.02 * stride;
+  }
+}
+
+function animateArms(parts, pose, gait, stride, weapon, role) {
   if (!pose || pose.state === WeaponState.IDLE) {
     const polearm = weapon === 'spear';
+    const captain = role === SoldierRole.CAPTAIN;
     parts.rightArm.rotation.set(
-      polearm ? -1.02 : gait * 0.2 * stride - 0.08,
-      polearm ? -0.15 : 0,
-      polearm ? -0.24 : 0.08,
+      polearm ? -1.02 : captain ? -0.42 : gait * 0.2 * stride - 0.08,
+      polearm ? -0.15 : captain ? -0.18 : 0,
+      polearm ? -0.24 : captain ? -0.16 : 0.08,
     );
     parts.leftArm.rotation.set(
-      polearm ? -0.9 : -gait * 0.2 * stride - 0.04,
-      polearm ? 0.2 : 0,
-      polearm ? 0.3 : -0.08,
+      polearm ? -0.9 : captain ? -0.88 : -gait * 0.2 * stride - 0.04,
+      polearm ? 0.2 : captain ? 0.24 : 0,
+      polearm ? 0.3 : captain ? 0.3 : -0.08,
     );
-    parts.rightForearm.rotation.set(polearm ? -0.38 : -0.1, 0, polearm ? 0.08 : 0);
-    parts.leftForearm.rotation.set(polearm ? -0.52 : -0.08, 0, polearm ? -0.08 : 0);
+    parts.rightForearm.rotation.set(polearm ? -0.38 : captain ? -0.5 : -0.1, 0, polearm ? 0.08 : captain ? -0.08 : 0);
+    parts.leftForearm.rotation.set(polearm ? -0.52 : captain ? -0.62 : -0.08, 0, polearm ? -0.08 : captain ? 0.08 : 0);
     return;
   }
   const t = smoothstep(pose.progress ?? 0);
@@ -593,6 +666,58 @@ function animateArms(parts, pose, gait, stride, weapon) {
   }
 }
 
+function animateDeathCollapse(object3d, parts, variant, deathTime) {
+  const t = smoothstep(Math.min(1, deathTime / 0.92));
+  const settle = smoothstep(Math.max(0, Math.min(1, (deathTime - 0.32) / 0.68)));
+  parts.upperBody.rotation.set(0, 0, 0);
+
+  if (variant === 0) {
+    parts.collapseRoot.rotation.set(-0.08 * settle, 0.08 * settle, -1.46 * t);
+    parts.upperBody.rotation.y = -0.18 * settle;
+    parts.rightArm.rotation.x = -0.45 - settle * 0.72;
+    parts.leftArm.rotation.x = -0.36 - settle * 0.48;
+    parts.rightLeg.rotation.x = settle * 0.2;
+    parts.leftLeg.rotation.x = -settle * 0.14;
+  } else if (variant === 1) {
+    parts.collapseRoot.rotation.set(1.38 * t, -0.12 * settle, 0.18 * t);
+    parts.upperBody.rotation.y = 0.22 * settle;
+    parts.rightArm.rotation.set(-0.76 - settle * 0.35, 0.2, -0.34);
+    parts.leftArm.rotation.set(-0.58 - settle * 0.42, -0.18, 0.3);
+    parts.rightLeg.rotation.x = -settle * 0.25;
+    parts.leftLeg.rotation.x = settle * 0.3;
+  } else {
+    parts.collapseRoot.rotation.set(-1.28 * t, 0.18 * settle, 0.42 * t);
+    parts.upperBody.rotation.y = -0.28 * settle;
+    parts.rightArm.rotation.set(-0.5 - settle * 0.42, -0.22, -0.44);
+    parts.leftArm.rotation.set(-0.82 - settle * 0.3, 0.2, 0.38);
+    parts.rightLeg.rotation.x = settle * 0.34;
+    parts.leftLeg.rotation.x = -settle * 0.28;
+  }
+
+  parts.head.rotation.x = variant === 1 ? -0.16 * settle : 0.2 * settle;
+  parts.head.rotation.y = (variant - 1) * 0.26 * settle;
+  object3d.rotation.z = variant === 1 ? 1.02 * t : -1.02 * t;
+  alignCollapseToGround(object3d, parts.collapseRoot, t);
+}
+
+function alignCollapseToGround(object3d, collapseRoot, amount) {
+  _collapseAnchor.copy(object3d.position);
+  object3d.position.set(0, 0, 0);
+  collapseRoot.position.set(0, 0, 0);
+  object3d.updateWorldMatrix(true, true);
+  _collapseBounds.setFromObject(collapseRoot);
+  const allowedSink = 0.065 * object3d.scale.y;
+  const lift = -allowedSink - _collapseBounds.min.y;
+  if (lift > 0) {
+    _collapseLift.set(0, lift * amount, 0);
+    _collapseLift.applyQuaternion(_collapseQuaternion.copy(object3d.quaternion).invert());
+    _collapseLift.divide(object3d.scale);
+    collapseRoot.position.copy(_collapseLift);
+  }
+  object3d.position.copy(_collapseAnchor);
+  object3d.updateWorldMatrix(true, true);
+}
+
 function smoothstep(value) {
   const t = Math.max(0, Math.min(1, value));
   return t * t * (3 - 2 * t);
@@ -606,3 +731,8 @@ function hashString(value) {
   }
   return hash >>> 0;
 }
+
+const _collapseBounds = new Box3();
+const _collapseAnchor = new Vector3();
+const _collapseLift = new Vector3();
+const _collapseQuaternion = new Quaternion();

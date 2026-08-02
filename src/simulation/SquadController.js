@@ -23,6 +23,7 @@ export class SquadController extends EventDispatcher {
     morale,
     officer = null,
     standardBearer = null,
+    active = true,
   } = {}) {
     super();
     this.id = id;
@@ -38,6 +39,7 @@ export class SquadController extends EventDispatcher {
     this.morale = morale instanceof SquadMorale ? morale : new SquadMorale(morale);
     this.officer = officer;
     this.standardBearer = standardBearer;
+    this.active = Boolean(active);
     this.order = SquadOrder.HOLD;
     this.orderTarget = this.anchor.clone();
     this.focusTarget = null;
@@ -63,8 +65,22 @@ export class SquadController extends EventDispatcher {
     actors.forEach((actor) => {
       actor.squad = this;
       actor.combatant.squad = this;
+      actor.combatant.targetable = this.active;
       if (actor.brain) actor.brain.actor = actor;
     });
+  }
+
+  setActive(active, { targetable = active } = {}) {
+    this.active = Boolean(active);
+    for (const actor of this.actors) {
+      if (actor.combatant.alive) actor.combatant.targetable = Boolean(targetable);
+      if (!this.active) {
+        actor.brain?._releaseTarget?.();
+        actor.velocity?.set?.(0, 0, 0);
+      }
+    }
+    this.dispatchEvent({ type: 'activationchange', squad: this, active: this.active });
+    return this.active;
   }
 
   issueOrder(order, {
@@ -92,6 +108,7 @@ export class SquadController extends EventDispatcher {
   }
 
   update(dt, context = {}) {
+    if (!this.active) return this.morale.state;
     const alive = this.actors.filter((actor) => actor.combatant.alive);
     for (const actor of this.actors) {
       if (!actor.combatant.alive && !this._deadIds.has(actor.id)) {
@@ -137,17 +154,36 @@ export class SquadController extends EventDispatcher {
       this.dispatchEvent({ type: 'rout', squad: this });
     }
 
-    if (this.order === SquadOrder.ADVANCE && this.morale.state !== CohesionState.ROUTED) {
-      _delta.copy(this.orderTarget).sub(this.anchor);
+    const focusing = (
+      this.order === SquadOrder.FOCUS
+      && this.focusTarget?.combatant?.alive
+      && this.focusTarget?.object3d?.position
+    );
+    if (
+      (this.order === SquadOrder.ADVANCE || focusing)
+      && this.morale.state !== CohesionState.ROUTED
+    ) {
+      const destination = focusing
+        ? this.focusTarget.object3d.position
+        : this.orderTarget;
+      _delta.copy(destination).sub(this.anchor);
       _delta.y = 0;
       const distance = _delta.length();
-      if (distance > 0.1) {
-        const step = Math.min(distance, dt * (this.morale.state === CohesionState.FRACTURED ? 0.8 : 1.65));
+      const stoppingDistance = focusing ? 4.8 : 0.1;
+      if (distance > stoppingDistance) {
+        const remaining = Math.max(0, distance - stoppingDistance);
+        const step = Math.min(
+          remaining,
+          dt * (this.morale.state === CohesionState.FRACTURED ? 0.8 : 1.65),
+        );
         this.anchor.addScaledVector(_delta.multiplyScalar(1 / distance), step);
         this.forward.lerp(_delta, Math.min(1, dt * 2.5)).normalize();
-      } else {
+      } else if (!focusing) {
         this.order = SquadOrder.HOLD;
       }
+    } else if (this.order === SquadOrder.FOCUS && !focusing) {
+      this.order = SquadOrder.HOLD;
+      this.focusTarget = null;
     }
 
     const activeActors = alive.filter((actor) => actor.brain);
@@ -167,7 +203,7 @@ export class SquadController extends EventDispatcher {
         forward: this.forward,
         retreatPoint: this.retreatPoint,
         cohesionState: this.morale.state,
-        advance: this.order === SquadOrder.ADVANCE,
+        advance: this.order === SquadOrder.ADVANCE || this.order === SquadOrder.FOCUS,
         braced: this.order === SquadOrder.BRACE,
         focusTarget: this.focusTarget,
         lod: actor.lod,
@@ -194,6 +230,7 @@ export class SquadController extends EventDispatcher {
       cohesion: this.morale.snapshot(),
       alive: this.initialCount - this.casualties,
       casualties: this.casualties,
+      active: this.active,
       center: this._center.clone(),
     };
   }

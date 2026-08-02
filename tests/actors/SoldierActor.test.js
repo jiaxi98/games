@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  Box3,
   BoxGeometry,
   CylinderGeometry,
 } from 'three';
@@ -84,5 +85,95 @@ describe('SoldierActor visuals', () => {
     expect(actor._parts.head.visible).toBe(true);
 
     actor.dispose();
+  });
+
+  it('separates the near silhouette and rotates the torso into weapon-specific anticipation', () => {
+    const sword = createSoldierActor({
+      id: 'sword-windup',
+      factionId: FactionId.SAINT_ORENS,
+      role: SoldierRole.MAN_AT_ARMS,
+    });
+    const spear = createSoldierActor({
+      id: 'spear-windup',
+      factionId: FactionId.SAINT_ORENS,
+      role: SoldierRole.SPEARMAN,
+    });
+
+    expect(sword.object3d.getObjectByName('ShoulderYoke')).toBeTruthy();
+    expect(sword._parts.upperBody.name).toBe('UpperBodyPivot');
+
+    sword.update(0, {
+      combatPose: {
+        state: WeaponState.WINDUP,
+        progress: 1,
+        attack: { arc: [0.9, -0.6] },
+      },
+    });
+    spear.update(0, {
+      combatPose: {
+        state: WeaponState.WINDUP,
+        progress: 1,
+        attack: { thrust: true, arc: [0, 0] },
+      },
+    });
+
+    expect(Math.abs(sword._parts.upperBody.rotation.y)).toBeGreaterThan(0.55);
+    expect(Math.abs(sword._parts.upperBody.rotation.y))
+      .toBeGreaterThan(Math.abs(spear._parts.upperBody.rotation.y) + 0.15);
+    expect(Math.abs(sword._parts.upperBody.rotation.z)).toBeGreaterThan(0.1);
+
+    sword.dispose();
+    spear.dispose();
+  });
+
+  it('gives captains a distinct asymmetrical command stance and mantle', () => {
+    const captain = createCaptainActor({
+      id: 'command-stance',
+      factionId: FactionId.SAINT_ORENS,
+    });
+
+    captain.update(0, { speed: 0 });
+    expect(captain.object3d.getObjectByName('CaptainMantle')).toBeTruthy();
+    expect(captain._parts.upperBody.rotation.y).toBeLessThan(-0.08);
+    expect(Math.abs(captain._parts.leftArm.rotation.x - captain._parts.rightArm.rotation.x))
+      .toBeGreaterThan(0.3);
+    expect(captain._parts.head.rotation.y).toBeGreaterThan(0.05);
+
+    captain.dispose();
+  });
+
+  it('selects three deterministic collapse structures and aligns each to ground', () => {
+    const actorsByVariant = new Map();
+    for (let index = 0; actorsByVariant.size < 3 && index < 40; index += 1) {
+      const actor = createSoldierActor({
+        id: `collapse:${index}`,
+        factionId: FactionId.VANGUARD,
+      });
+      if (actorsByVariant.has(actor._deathVariant)) actor.dispose();
+      else actorsByVariant.set(actor._deathVariant, actor);
+    }
+
+    expect([...actorsByVariant.keys()].sort()).toEqual([0, 1, 2]);
+    let repeatVariant = null;
+    for (const [variant, actor] of actorsByVariant) {
+      if (actor.id === 'collapse:0') repeatVariant = variant;
+      actor.combatant.receiveImpact({ damage: 999, damageType: 'blunt' });
+      for (let frame = 0; frame < 90; frame += 1) actor.update(1 / 60);
+      const bounds = new Box3().setFromObject(actor._parts.collapseRoot);
+
+      expect(actor.object3d.userData.deathVariant).toBe(variant);
+      expect(Math.abs(actor._parts.collapseRoot.rotation.z)
+        + Math.abs(actor._parts.collapseRoot.rotation.x)).toBeGreaterThan(1.2);
+      expect(bounds.min.y).toBeGreaterThanOrEqual(-0.08);
+      expect(bounds.min.y).toBeLessThan(0.02);
+      actor.dispose();
+    }
+
+    const repeat = createSoldierActor({
+      id: 'collapse:0',
+      factionId: FactionId.VANGUARD,
+    });
+    expect(repeat._deathVariant).toBe(repeatVariant);
+    repeat.dispose();
   });
 });

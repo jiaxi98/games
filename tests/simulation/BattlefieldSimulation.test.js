@@ -153,4 +153,35 @@ describe('BattlefieldSimulation', () => {
     expect(events).toContain('aiimpact');
     simulation.dispose();
   });
+
+  it('keeps dormant squads visible but out of combat until explicitly activated', () => {
+    const simulation = createBattlefieldSimulation({ farVisuals: false });
+    const dormant = simulation.createSquad({
+      id: 'dormant',
+      factionId: FactionId.SAINT_ORENS,
+      count: 2,
+      anchor: new Vector3(0, 0, 0),
+      active: false,
+    });
+    const allies = simulation.createSquad({
+      id: 'allies',
+      factionId: FactionId.VANGUARD,
+      count: 2,
+      anchor: new Vector3(0, 0, 2),
+    });
+
+    simulation.update(0.1, new Vector3(0, 2, 2));
+    expect(dormant.actors.every((actor) => actor.object3d.visible)).toBe(true);
+    expect(dormant.actors.every((actor) => actor.combatant.targetable === false)).toBe(true);
+    expect(simulation.queryActors(new Vector3(), 5)).not.toContain(dormant.actors[0]);
+    expect(simulation.getBattleState().squads.map((squad) => squad.id)).not.toContain('dormant');
+
+    simulation.setSquadActive('dormant', true);
+    simulation.update(0.1, new Vector3(0, 2, 2));
+    expect(dormant.actors.every((actor) => actor.combatant.targetable)).toBe(true);
+    expect(simulation.queryActors(new Vector3(), 5)).toContain(dormant.actors[0]);
+    expect(simulation.getBattleState().squads.map((squad) => squad.id)).toContain('dormant');
+    expect(allies.active).toBe(true);
+    simulation.dispose();
+  });
 });

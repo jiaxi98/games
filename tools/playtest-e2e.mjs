@@ -83,6 +83,7 @@ try {
   await waitForStage('captain');
   await capture('03-spear-line-broken');
 
+  timings.toCaptain = await approachCaptainEncounter();
   const combat = await fightCaptain();
   await waitForStage('victory', 12_000);
   await capture('04-captain-defeated');
@@ -217,6 +218,10 @@ async function fightCaptain() {
         playerAlive: context.app.playerCombat.combatant.alive,
       };
     });
+    if (!state.position) {
+      await page.waitForTimeout(180);
+      continue;
+    }
     if (!state.alive) {
       return {
         durationMs: Date.now() - start,
@@ -234,14 +239,57 @@ async function fightCaptain() {
       return Math.hypot(position.x - x, position.z - z);
     }, state.position);
     if (distance > 1.7) {
-      await walkTo(state.position, 1.45, 4_000);
+      await walkTo(state.position, 1.45, 12_000);
     }
     await face(state.position);
+    await page.mouse.down({ button: 'right' });
+    await page.waitForTimeout(360);
+    await page.mouse.up({ button: 'right' });
+    await page.waitForTimeout(80);
     await page.mouse.click(800, 450);
     strikes += 1;
-    await page.waitForTimeout(670);
+    await page.waitForTimeout(560);
   }
   throw new Error(`Captain remained alive after ${strikes} production-input strikes`);
+}
+
+async function approachCaptainEncounter() {
+  const start = Date.now();
+  while (Date.now() - start < 32_000) {
+    const state = await page.evaluate(() => {
+      const context = window.MedievalRPG.getContext();
+      const gameplay = context.app.gameplay;
+      const debug = gameplay.getDebugState();
+      const captain = gameplay.getCaptain();
+      return {
+        targetable: captain?.combatant?.targetable ?? false,
+        alive: captain?.combatant?.alive ?? false,
+        position: captain ? {
+          x: captain.object3d.position.x,
+          y: captain.object3d.position.y + 1.25,
+          z: captain.object3d.position.z,
+        } : null,
+        bridge: {
+          x: debug.landmarks.bridge.x,
+          y: debug.landmarks.bridge.y,
+          z: debug.landmarks.bridge.z,
+        },
+      };
+    });
+    if (state.targetable && state.alive) return Date.now() - start;
+    const approach = {
+      x: state.bridge.x,
+      y: state.bridge.y,
+      z: state.bridge.z + 52,
+    };
+    const distance = await page.evaluate(({ x, z }) => {
+      const position = window.MedievalRPG.getContext().player.position;
+      return Math.hypot(position.x - x, position.z - z);
+    }, approach);
+    if (distance > 8) await walkTo(approach, 6.5, 12_000);
+    else await page.waitForTimeout(250);
+  }
+  throw new Error('Captain encounter did not activate after approaching the bridge perimeter');
 }
 
 async function capture(name) {
@@ -251,4 +299,3 @@ async function capture(name) {
     fullPage: true,
   });
 }
-

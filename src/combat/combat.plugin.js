@@ -10,13 +10,13 @@ export function install(context) {
   const combatant = new Combatant({
     id: 'player',
     factionId: 1,
-    maxHealth: 120,
+    maxHealth: 150,
     maxStamina: 110,
     staminaRegen: 26,
     armor: {
-      [DamageType.CUT]: 0.24,
-      [DamageType.PIERCE]: 0.15,
-      [DamageType.BLUNT]: 0.08,
+      [DamageType.CUT]: 0.34,
+      [DamageType.PIERCE]: 0.28,
+      [DamageType.BLUNT]: 0.16,
     },
     poise: 42,
     positionProvider: () => player.position,
@@ -41,7 +41,7 @@ export function install(context) {
       };
     }
     const result = originalReceiveImpact(impact);
-    if ((result.damage ?? 0) > 0 && !result.killed) damageGraceRemaining = 0.52;
+    if ((result.damage ?? 0) > 0 && !result.killed) damageGraceRemaining = 0.72;
     return result;
   };
   combatant.actor = player;

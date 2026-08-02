@@ -19,6 +19,7 @@ import {
 } from '../narrative/battlePhases.js';
 import { CAMPAIGN } from '../narrative/campaign.js';
 import { MissionStage, MissionState } from './MissionState.js';
+import { createRouteEncounterDirector } from './RouteEncounterDirector.js';
 
 export const name = 'ashen-standard-mission';
 
@@ -119,13 +120,15 @@ function createMissionSystem(context) {
 
   const mission = new MissionState();
   const landmarks = world.landmarks;
-  const alliedSquad = simulation.squads.find(
-    (squad) => squad.factionId === FactionId.VANGUARD,
-  );
-  const enemySquad = simulation.squads.find(
-    (squad) => squad.factionId === FactionId.SAINT_ORENS,
-  );
-  const captain = enemySquad?.actors.find((actor) => actor.role === 'captain');
+  const routeEncounters = createRouteEncounterDirector({
+    simulation,
+    landmarks,
+    player,
+    events,
+  });
+  const alliedSquad = routeEncounters.squads.ALLIED_RETINUE;
+  const enemySquad = routeEncounters.squads.SPEAR_LINE;
+  const captain = routeEncounters.captain;
   const standardPosition = landmarks.meleeLane.clone().add(new Vector3(3, 0, 1));
   standardPosition.y = world.sampleHeight(standardPosition.x, standardPosition.z);
   const markerRoot = new Group();
@@ -159,17 +162,6 @@ function createMissionSystem(context) {
   let lastFocusRefreshAt = -Infinity;
   let captainHUDVisible = false;
   let captainPhase = null;
-
-  stageSquad(alliedSquad, landmarks.hedgerowRally, new Vector3(0, 0, -1));
-  stageSquad(enemySquad, landmarks.spearLine, new Vector3(0, 0, 1));
-  if (captain?.combatant) {
-    // The captain withdraws behind the spear line until his authored
-    // encounter begins. This keeps combat rules honest instead of hiding
-    // phase gating behind an inflated health pool.
-    captain.combatant.targetable = false;
-  }
-  alliedSquad?.issueOrder?.('hold');
-  enemySquad?.issueOrder?.('hold');
 
   const setObjective = (stage, { phase, announcement } = {}) => {
     const objective = OBJECTIVES[stage];
@@ -273,7 +265,7 @@ function createMissionSystem(context) {
       if (captain?.combatant) {
         if (!captain.combatant.alive) captain.combatant.reset();
         captain.combatant.health = captain.combatant.maxHealth;
-        captain.combatant.targetable = true;
+        captain.combatant.targetable = false;
       }
       battlefield.triggerReversal({
         id: 'spear-line-broken',
@@ -285,9 +277,6 @@ function createMissionSystem(context) {
         advanceTarget: landmarks.bridge,
       });
       simulation.setDistantFormationState?.('orens-ford-ranks', 'fractured', { speed: -0.7 });
-      if (captain?.combatant?.alive) {
-        enemySquad?.issueOrder?.('advance', { target: landmarks.bridge });
-      }
       setObjective(MissionStage.CAPTAIN, {
         phase: PHASE_BY_STAGE[MissionStage.CAPTAIN],
         announcement: {
@@ -301,7 +290,7 @@ function createMissionSystem(context) {
       updateCaptainHUD(true);
       events.emit('subtitle', {
         speaker: 'Gascon Sergeant',
-        text: 'There—the captain under the red cloth! Bring him down!',
+        text: 'His guard is falling back to the bridge. Break the perimeter!',
       });
     } else if (transition.current === MissionStage.VICTORY) {
       setObjective(MissionStage.VICTORY, {
@@ -362,6 +351,7 @@ function createMissionSystem(context) {
       alliedSquad,
       enemySquad,
       captain,
+      encounters: routeEncounters.director.snapshot(),
     }),
     restart: () => events.emit('mission:restart'),
     // Deterministic harness hooks for browser-level mission verification.
@@ -463,19 +453,36 @@ function createMissionSystem(context) {
         duration: 2.4,
       });
     } else if (command === 'advance') {
-      const target = mission.stage === MissionStage.CAPTAIN && captain?.combatant?.alive
+      const target = (
+        mission.stage === MissionStage.CAPTAIN
+        && routeEncounters.director.captainEncounter?.active
+        && captain?.combatant?.alive
+      )
         ? captain
         : null;
       affected = target
-        ? battlefield.focus(target, { radius: 170 })
+        ? (
+          // Keep the authored duel readable: allied units contain the bridge
+          // perimeter instead of collapsing onto the captain's exact point.
+          battlefield.advance(
+            landmarks.bridge.clone().add(new Vector3(-8, 0, 26)),
+            { radius: 170 },
+          )
+        )
         : battlefield.advance(
-          mission.stage === MissionStage.VICTORY ? landmarks.bridge : landmarks.spearLine,
+          mission.stage === MissionStage.CAPTAIN || mission.stage === MissionStage.VICTORY
+            ? landmarks.bridge
+            : landmarks.spearLine,
           { radius: 170 },
         );
       events.emit('subtitle', {
         speaker: 'Martin',
         text: affected.length
-          ? target ? 'Their captain! Take him!' : 'Forward with me!'
+          ? target
+            ? 'Their captain! Take him!'
+            : mission.stage === MissionStage.CAPTAIN
+              ? 'Drive through the bridge guard!'
+              : 'Forward with me!'
           : 'The retinue is too far away!',
         duration: 2.4,
       });
@@ -504,13 +511,23 @@ function createMissionSystem(context) {
       standard: stage === MissionStage.RECOVER,
       rally: stage === MissionStage.RALLY,
       spear: stage === MissionStage.BREAK,
-      captain: stage === MissionStage.CAPTAIN && captain?.combatant?.alive,
+      captain: (
+        stage === MissionStage.CAPTAIN
+        && routeEncounters.director.captainEncounter?.active
+        && captain?.combatant?.alive
+      ),
       bridge: stage === MissionStage.VICTORY,
     };
     standardMarker.update(standardPosition, active.standard, bob, player.position);
     rallyMarker.update(landmarks.hedgerowRally, active.rally, bob, player.position);
     spearMarker.update(landmarks.spearLine, active.spear, bob, player.position);
-    captainMarker.update(captain?.object3d?.position, active.captain, bob, player.position);
+    captainMarker.update(
+      captain?.object3d?.position,
+      active.captain,
+      bob,
+      player.position,
+      { compact: true },
+    );
     bridgeMarker.update(landmarks.bridge, active.bridge, bob, player.position);
 
     if (mission.standardRecovered && player.enabled) {
@@ -576,13 +593,19 @@ function createMissionSystem(context) {
           ? 'Their formation is wavering. Keep the retinue together.'
           : 'Brace for contact, then order the retinue forward.';
     } else if (mission.stage === MissionStage.CAPTAIN) {
-      detail = 'Keep the captain in sight and focus the retinue on him.';
+      detail = routeEncounters.director.captainEncounter?.active
+        ? 'Keep the captain in sight and focus the retinue on him.'
+        : 'Drive through the bridge guard and force the captain to commit.';
     }
     events.emit('objective:progress', { authority: 'mission', progress, detail });
   };
 
   function updateCaptainHUD(force = false) {
-    const active = mission.stage === MissionStage.CAPTAIN && Boolean(captain?.combatant?.alive);
+    const active = (
+      mission.stage === MissionStage.CAPTAIN
+      && routeEncounters.director.captainEncounter?.active
+      && Boolean(captain?.combatant?.alive)
+    );
     if (!active) {
       if (captainHUDVisible || force) {
         events.emit('encounter:captain', { visible: false });
@@ -593,8 +616,7 @@ function createMissionSystem(context) {
     }
     const health = captain.combatant.health;
     const maxHealth = captain.combatant.maxHealth;
-    const ratio = maxHealth > 0 ? health / maxHealth : 0;
-    const phase = ratio > 0.66 ? 'commanding' : ratio > 0.33 ? 'pressed' : 'desperate';
+    const phase = routeEncounters.director.getCaptainPhase() ?? 'commanding';
     if (force || !captainHUDVisible || phase !== captainPhase) {
       events.emit('encounter:captain', {
         visible: true,
@@ -619,6 +641,10 @@ function createMissionSystem(context) {
         return;
       }
 
+      routeEncounters.director.update(delta, {
+        stage: mission.stage,
+        playerPosition: player.position,
+      });
       updateMarkers(delta);
       const interaction = updateInteraction();
       updateCaptainHUD();
@@ -642,16 +668,19 @@ function createMissionSystem(context) {
         const battleState = battlefield.getState();
         const allied = battleState?.factions?.get?.(FactionId.VANGUARD);
         const enemy = battleState?.factions?.get?.(FactionId.SAINT_ORENS);
+        const alliedSnapshot = battleState?.squads?.find?.(
+          (squad) => squad.id === alliedSquad?.id,
+        ) ?? alliedSquad?.snapshot?.();
         const enemySnapshot = battleState?.squads?.find?.(
-          (squad) => squad.factionId === FactionId.SAINT_ORENS,
-        );
+          (squad) => squad.id === enemySquad?.id,
+        ) ?? enemySquad?.snapshot?.();
         completeAndAdvance(mission.update({
           delta: 0.25,
           nearRally: distance2D(player.position, landmarks.hedgerowRally) <= 28,
-          alliedMorale: allied?.morale ?? 0,
-          alliedAlive: allied?.alive ?? 0,
-          enemyMorale: enemy?.morale ?? 1,
-          enemyAlive: enemy?.alive ?? Infinity,
+          alliedMorale: alliedSnapshot?.cohesion?.value ?? allied?.morale ?? 0,
+          alliedAlive: alliedSnapshot?.alive ?? allied?.alive ?? 0,
+          enemyMorale: enemySnapshot?.cohesion?.value ?? enemy?.morale ?? 1,
+          enemyAlive: enemySnapshot?.alive ?? enemy?.alive ?? Infinity,
           enemyRouted: enemySnapshot?.cohesion?.state === 'routed',
           captainAlive: captain?.combatant?.alive ?? false,
         }));
@@ -660,9 +689,7 @@ function createMissionSystem(context) {
           ...createBattlePhaseEvent(PHASE_BY_STAGE[mission.stage] ?? BattlePhase.OPENING),
           allied: {
             cohesion: allied?.morale ?? 0,
-            state: battleState?.squads?.find?.(
-              (squad) => squad.factionId === FactionId.VANGUARD,
-            )?.cohesion?.state,
+            state: alliedSnapshot?.cohesion?.state,
           },
           enemy: {
             cohesion: enemy?.morale ?? 0,
@@ -676,7 +703,9 @@ function createMissionSystem(context) {
         // Keep a focus order useful as the captain falls back rather than
         // requiring the player to repeatedly refresh it.
         if (lastCommand === 'advance' && elapsed - lastFocusRefreshAt >= 5) {
-          alliedSquad?.issueOrder?.('focus', { focusTarget: captain });
+          alliedSquad?.issueOrder?.('hold', {
+            target: landmarks.bridge.clone().add(new Vector3(-8, 0, 26)),
+          });
           lastFocusRefreshAt = elapsed;
         }
       }
@@ -691,6 +720,7 @@ function createMissionSystem(context) {
       for (const dispose of disposers.splice(0).reverse()) dispose?.();
       markerRoot.removeFromParent();
       disposeGroup(markerRoot);
+      routeEncounters.dispose();
     },
   };
 }
@@ -723,7 +753,7 @@ function createMarker(label, color) {
 
   return {
     object3d,
-    update(position, visible, bob = 0, viewerPosition = null) {
+    update(position, visible, bob = 0, viewerPosition = null, options = {}) {
       object3d.visible = Boolean(visible && position);
       if (!object3d.visible) return;
       object3d.position.copy(position);
@@ -731,7 +761,12 @@ function createMarker(label, color) {
       sprite.position.y = 3.2 + bob;
       const distance = distance2D(position, viewerPosition);
       const distanceScale = Math.max(0.72, Math.min(1.28, 0.72 + distance / 120));
-      sprite.scale.set(5.4 * distanceScale, 1.05 * distanceScale, 1);
+      const compactScale = options.compact ? 0.42 : 1;
+      sprite.scale.set(
+        5.4 * distanceScale * compactScale,
+        1.05 * distanceScale * compactScale,
+        1,
+      );
       spriteMaterial.opacity = distance > 145 ? 0.42 : distance > 85 ? 0.62 : 0.9;
       ringMaterial.opacity = distance > 95 ? 0.3 : 0.68;
     },
@@ -787,27 +822,6 @@ function createCarriedStandard() {
 function attachStandardToPlayer(_player, standard, markerRoot) {
   if (standard.parent !== markerRoot) markerRoot.add(standard);
   standard.visible = true;
-}
-
-function stageSquad(squad, landmark, forward) {
-  if (!squad || !landmark) return;
-  squad.anchor.copy(landmark);
-  squad.orderTarget.copy(landmark);
-  squad.forward.copy(forward).setY(0).normalize();
-  squad.retreatPoint.copy(landmark).addScaledVector(forward, -70);
-  const alive = squad.actors.filter((actor) => actor.combatant.alive);
-  alive.forEach((actor, index) => {
-    squad.formation.worldSlot(
-      index,
-      alive.length,
-      squad.morale.state,
-      squad.anchor,
-      squad.forward,
-      actor.object3d.position,
-    );
-    actor.object3d.position.y = landmark.y;
-    actor.setHeading(Math.atan2(forward.x, forward.z));
-  });
 }
 
 function distance2D(a, b) {

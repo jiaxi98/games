@@ -63,6 +63,7 @@ export class BattlefieldSimulation extends EventDispatcher {
     retreatPoint,
     formation,
     morale,
+    active = true,
   }) {
     const actors = [];
     let officer = null;
@@ -104,6 +105,7 @@ export class BattlefieldSimulation extends EventDispatcher {
       morale,
       officer,
       standardBearer,
+      active,
     });
     this._attachSquadEvents(squad);
     this.squads.push(squad);
@@ -130,6 +132,25 @@ export class BattlefieldSimulation extends EventDispatcher {
     this._attachSquadEvents(squad);
     this.spatial.rebuild(this.actors);
     return squad;
+  }
+
+  getSquad(id) {
+    return this.squads.find((squad) => squad.id === id) ?? null;
+  }
+
+  setSquadActive(squadOrId, active, options = {}) {
+    const squad = typeof squadOrId === 'string'
+      ? this.getSquad(squadOrId)
+      : squadOrId;
+    if (!squad) return false;
+    squad.setActive(active, options);
+    this._crowdDirty = true;
+    this.dispatchEvent({
+      type: 'squadactivation',
+      squad,
+      active: squad.active,
+    });
+    return true;
   }
 
   addDistantFormation({
@@ -224,7 +245,11 @@ export class BattlefieldSimulation extends EventDispatcher {
     if (!position) return [];
     const affected = [];
     for (const squad of this.squads) {
-      if (squad.factionId !== factionId || squad.center.distanceTo(position) > radius) continue;
+      if (
+        !squad.active
+        || squad.factionId !== factionId
+        || squad.center.distanceTo(position) > radius
+      ) continue;
       squad.issueOrder(order, { target, focusTarget, strength: order === SquadOrder.RALLY ? 0.3 : 0.2 });
       affected.push(squad);
     }
@@ -245,6 +270,7 @@ export class BattlefieldSimulation extends EventDispatcher {
     this._reversal.objectives.add(id);
     this._reversal.standardsRaised.add(factionId);
     for (const squad of this.squads) {
+      if (!squad.active) continue;
       const distance = position ? squad.center.distanceTo(position) : 0;
       if (distance > radius) continue;
       if (squad.factionId === factionId) {
@@ -281,7 +307,9 @@ export class BattlefieldSimulation extends EventDispatcher {
     this.attackCoordinator.prune();
     this._spatialItems.length = 0;
     for (const actor of this.actors) {
-      if (actor.combatant.alive) this._spatialItems.push(actor);
+      if (actor.combatant.alive && actor.squad?.active !== false) {
+        this._spatialItems.push(actor);
+      }
     }
     for (const actor of this.externalActors) {
       if (actor.combatant.alive) this._spatialItems.push(actor);
@@ -298,6 +326,7 @@ export class BattlefieldSimulation extends EventDispatcher {
     this._updateDistantFormations(dt, cameraPosition ?? playerPosition);
 
     for (const squad of this.squads) {
+      if (!squad.active) continue;
       const lod = squad.actors.reduce((min, actor) => Math.min(min, actor.lod), 2);
       const interval = lod === 0 ? 1 : lod === 1 ? 2 : 5;
       if (this._frame % interval !== 0) continue;
@@ -319,6 +348,7 @@ export class BattlefieldSimulation extends EventDispatcher {
   getBattleState() {
     const factions = new Map();
     for (const squad of this.squads) {
+      if (!squad.active) continue;
       const entry = factions.get(squad.factionId) ?? {
         alive: 0,
         routed: 0,
@@ -339,7 +369,9 @@ export class BattlefieldSimulation extends EventDispatcher {
     });
     return {
       factions,
-      squads: this.squads.map((squad) => squad.snapshot()),
+      squads: this.squads
+        .filter((squad) => squad.active)
+        .map((squad) => squad.snapshot()),
       objectives: [...this._reversal.objectives],
     };
   }
@@ -375,11 +407,20 @@ export class BattlefieldSimulation extends EventDispatcher {
 
   _updateSquadPressure() {
     for (const squad of this.squads) {
+      if (!squad.active) {
+        squad.enemyPressure = 0;
+        squad.observedFlankPressure = 0;
+        continue;
+      }
       let allies = 0;
       let enemies = 0;
       let flank = 0;
       for (const other of this.squads) {
-        if (other === squad || other.center.distanceToSquared(squad.center) > 24 * 24) continue;
+        if (
+          other === squad
+          || !other.active
+          || other.center.distanceToSquared(squad.center) > 24 * 24
+        ) continue;
         const strength = other.actors.reduce((sum, actor) => sum + (actor.combatant.alive ? 1 : 0), 0);
         if (other.factionId === squad.factionId) {
           allies += strength;
@@ -441,6 +482,7 @@ export class BattlefieldSimulation extends EventDispatcher {
 
   _enemyRoutedNear(squad) {
     return this.squads.some((other) =>
+      other.active &&
       other.factionId !== squad.factionId &&
       other.morale.state === CohesionState.ROUTED &&
       other.center.distanceToSquared(squad.center) < 35 * 35
@@ -492,6 +534,7 @@ export class BattlefieldSimulation extends EventDispatcher {
 
   _applyRoutMomentum(routedSquad) {
     for (const squad of this.squads) {
+      if (!squad.active) continue;
       if (squad.center.distanceToSquared(routedSquad.center) > 45 * 45) continue;
       if (squad.factionId === routedSquad.factionId) {
         squad.morale.applyShock(0.08);

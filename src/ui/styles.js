@@ -486,6 +486,11 @@ export function ensureUIStyles(documentRef = globalThis.document) {
       transform: translate(-50%, 0);
     }
 
+    .as-announcement[data-suppressed="true"] {
+      opacity: 0;
+      transform: translate(-50%, -8px);
+    }
+
     .as-announcement::before {
       content: "";
       display: block;

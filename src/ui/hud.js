@@ -211,6 +211,7 @@ export function createHUD(options = {}) {
     refs.encounterFill.style.setProperty('--value', health);
     refs.encounter.dataset.phase = encounter.phase ?? 'commanding';
     refs.encounter.dataset.visible = 'true';
+    refs.announcement.dataset.suppressed = 'true';
   };
 
   const showTutorial = (cue, cueOptions = {}) => {
@@ -250,6 +251,8 @@ export function createHUD(options = {}) {
     refs.announcementDetail.textContent = detail ?? '';
     refs.announcement.dataset.tone = announcementOptions.tone ?? 'neutral';
     refs.announcement.dataset.visible = 'true';
+    refs.announcement.dataset.suppressed =
+      refs.encounter.dataset.visible === 'true' ? 'true' : 'false';
     later(() => {
       if (token === announcementToken) refs.announcement.dataset.visible = 'false';
     }, (announcementOptions.duration ?? 2.75) * 1000);

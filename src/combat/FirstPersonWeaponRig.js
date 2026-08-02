@@ -12,12 +12,20 @@ import {
 import { WeaponState } from './MeleeCombatController.js';
 
 const NEUTRAL = Object.freeze({
-  weaponPosition: [0.36, -0.42, -0.69],
-  weaponRotation: [0.22, 0.25, -0.12],
-  rightArmPosition: [0.48, -0.53, -0.44],
-  rightArmRotation: [0.17, -0.22, -0.18],
-  leftArmPosition: [-0.25, -0.52, -0.48],
-  leftArmRotation: [0.18, -0.46, 0.22],
+  weaponPosition: [0.43, -0.5, -0.8],
+  weaponRotation: [0.17, 0.21, -0.09],
+  rightArmPosition: [0.47, -0.57, -0.5],
+  rightArmRotation: [0.15, -0.2, -0.14],
+  leftArmPosition: [-0.19, -0.58, -0.55],
+  leftArmRotation: [0.14, -0.4, 0.17],
+});
+
+const VIEWMODEL_SCALE = 0.79;
+const VIEWMODEL_RENDER_ORDER = Object.freeze({
+  arm: 20,
+  hand: 21,
+  weapon: 22,
+  blade: 23,
 });
 
 export function createFirstPersonWeaponRig({
@@ -27,6 +35,8 @@ export function createFirstPersonWeaponRig({
 } = {}) {
   const root = new Group();
   root.name = 'FirstPersonWeaponRig';
+  root.scale.setScalar(VIEWMODEL_SCALE);
+  root.userData.presentationScale = VIEWMODEL_SCALE;
 
   const skin = new MeshStandardMaterial({ color: skinColor, roughness: 0.94 });
   const cloth = new MeshStandardMaterial({ color: clothColor, roughness: 1, flatShading: true });
@@ -104,8 +114,8 @@ export function createFirstPersonWeaponRig({
     object.castShadow = false;
     object.receiveShadow = false;
     object.frustumCulled = false;
-    object.renderOrder = 20;
-    object.material.depthTest = false;
+    object.renderOrder = renderOrderFor(object);
+    object.material.depthTest = true;
     object.material.depthWrite = false;
     object.material.toneMapped = true;
   });
@@ -185,16 +195,17 @@ function createArm({
   hand.name = `${name}:Hand`;
   hand.rotation.x = Math.PI / 2;
   hand.rotation.z = handedness * 0.08;
-  hand.position.z = -0.69;
+  hand.position.z = -0.66;
   arm.add(hand);
 
   const gloveBack = new Mesh(new BoxGeometry(0.105, 0.032, 0.1), leather);
   gloveBack.name = `${name}:Glove`;
-  gloveBack.position.set(0, 0.035, -0.69);
+  gloveBack.position.set(0, 0.032, -0.655);
   gloveBack.rotation.y = handedness * 0.08;
   arm.add(gloveBack);
 
   arm.userData.hand = hand;
+  arm.userData.gripOffset = handedness > 0 ? -0.09 : -0.2;
   return arm;
 }
 
@@ -307,6 +318,7 @@ function applyPose(weaponRoot, rightArm, leftArm, pose = {}) {
   const t = ease(pose.progress ?? 0);
   const attack = pose.attack ?? {};
   const side = attack.arc?.[0] < 0 ? -1 : 1;
+  const isSpear = Boolean(weaponRoot.getObjectByName('SpearShaft'));
 
   setTransform(
     weaponRoot,
@@ -326,43 +338,59 @@ function applyPose(weaponRoot, rightArm, leftArm, pose = {}) {
 
   if (state === WeaponState.WINDUP) {
     if (attack.thrust) {
-      weaponRoot.position.set(0.3, -0.23, -0.38 + t * 0.08);
-      weaponRoot.rotation.set(0.08, 0.08, -0.04);
-      rightArm.rotation.set(-0.35, -0.22, -0.28);
-      leftArm.rotation.set(-0.27, 0.2, 0.2);
+      weaponRoot.position.set(0.37 + t * 0.08, -0.4 + t * 0.04, -0.58 + t * 0.18);
+      weaponRoot.rotation.set(0.06, -0.04 - t * 0.16, -0.025);
+      rightArm.position.set(0.48, -0.53, -0.44 + t * 0.08);
+      rightArm.rotation.set(-0.23 - t * 0.25, -0.2, -0.22);
+      leftArm.position.set(-0.08, -0.51, -0.58 - t * 0.05);
+      leftArm.rotation.set(-0.18 - t * 0.22, 0.15, 0.17);
     } else if (attack.vertical) {
-      weaponRoot.position.set(0.2, -0.12 + t * 0.16, -0.56);
-      weaponRoot.rotation.set(0.18 + t * 0.58, 0.05, -0.08);
-      rightArm.rotation.set(-0.42 - t * 0.28, -0.12, -0.25);
-      leftArm.rotation.set(-0.32 - t * 0.25, 0.12, 0.18);
+      weaponRoot.position.set(0.36, -0.34 + t * 0.3, -0.75 + t * 0.06);
+      weaponRoot.rotation.set(0.18 + t * 0.7, 0.02, -0.1);
+      rightArm.position.set(0.43, -0.51 + t * 0.14, -0.48);
+      leftArm.position.set(-0.12, -0.52 + t * 0.11, -0.55);
+      rightArm.rotation.set(-0.34 - t * 0.42, -0.1, -0.22);
+      leftArm.rotation.set(-0.28 - t * 0.37, 0.1, 0.15);
     } else {
-      weaponRoot.position.set(0.22 + side * t * 0.13, -0.25 + t * 0.08, -0.56);
-      weaponRoot.rotation.set(0.25 + t * 0.16, 0.16 + side * t * 0.66, -side * t * 0.22);
-      rightArm.rotation.set(-0.28 - t * 0.24, -0.12 + side * t * 0.32, -0.2 - side * t * 0.22);
-      leftArm.rotation.set(-0.22 - t * 0.2, 0.16 - side * t * 0.18, 0.22 + side * t * 0.16);
+      weaponRoot.position.set(0.4 + side * t * 0.2, -0.4 + t * 0.11, -0.72 + t * 0.08);
+      weaponRoot.rotation.set(0.22 + t * 0.13, 0.14 + side * t * 0.9, -side * t * 0.28);
+      rightArm.position.set(0.48 + side * t * 0.08, -0.55 + t * 0.08, -0.48);
+      leftArm.position.set(-0.16 + side * t * 0.08, -0.56 + t * 0.05, -0.56);
+      rightArm.rotation.set(-0.25 - t * 0.28, -0.1 + side * t * 0.36, -0.16 - side * t * 0.23);
+      leftArm.rotation.set(-0.2 - t * 0.23, 0.13 - side * t * 0.2, 0.18 + side * t * 0.16);
     }
   } else if (state === WeaponState.ACTIVE) {
     if (attack.thrust) {
-      weaponRoot.position.set(0.16, -0.19, -0.58 - t * 0.66);
-      weaponRoot.rotation.set(0.055, 0.025, -0.025);
-      rightArm.rotation.set(-0.38 - t * 0.23, -0.12, -0.21);
-      leftArm.rotation.set(-0.3 - t * 0.2, 0.1, 0.16);
+      weaponRoot.position.set(0.29, -0.36, -0.7 - t * 0.74);
+      weaponRoot.rotation.set(0.04, 0.015, -0.015);
+      rightArm.position.set(0.45 - t * 0.08, -0.52 + t * 0.07, -0.49 - t * 0.14);
+      leftArm.position.set(-0.11 + t * 0.08, -0.54 + t * 0.06, -0.59 - t * 0.13);
+      rightArm.rotation.set(-0.42 - t * 0.25, -0.11, -0.17);
+      leftArm.rotation.set(-0.35 - t * 0.22, 0.08, 0.13);
     } else if (attack.vertical) {
-      weaponRoot.position.set(0.12, -0.1 - t * 0.18, -0.62);
-      weaponRoot.rotation.set(0.78 - t * 1.02, 0.03, -0.06);
-      rightArm.rotation.set(-0.74 + t * 0.34, -0.08, -0.22);
-      leftArm.rotation.set(-0.62 + t * 0.3, 0.08, 0.17);
+      weaponRoot.position.set(0.32, -0.14 - t * 0.26, -0.79);
+      weaponRoot.rotation.set(0.88 - t * 1.18, 0.02, -0.07);
+      rightArm.position.set(0.42, -0.38 - t * 0.12, -0.48);
+      leftArm.position.set(-0.13, -0.42 - t * 0.09, -0.55);
+      rightArm.rotation.set(-0.78 + t * 0.42, -0.07, -0.2);
+      leftArm.rotation.set(-0.67 + t * 0.36, 0.07, 0.15);
     } else {
       const [start, end] = attack.arc ?? [-0.8, 0.7];
       const yaw = start + (end - start) * t;
-      weaponRoot.position.set(0.18 - side * t * 0.11, -0.22 + Math.sin(t * Math.PI) * 0.06, -0.62);
+      weaponRoot.position.set(
+        0.38 - side * t * 0.22,
+        -0.38 + Math.sin(t * Math.PI) * 0.08,
+        -0.78,
+      );
       weaponRoot.rotation.set(0.32 - t * 0.12, yaw * 0.96, side * (0.18 - t * 0.32));
+      rightArm.position.set(0.49 - side * t * 0.1, -0.52, -0.49);
+      leftArm.position.set(-0.15 - side * t * 0.08, -0.54, -0.56);
       rightArm.rotation.set(-0.54 + t * 0.16, yaw * 0.28, -0.22 + side * t * 0.18);
       leftArm.rotation.set(-0.43 + t * 0.14, yaw * 0.2, 0.2 - side * t * 0.12);
     }
   } else if (state === WeaponState.RECOVERY) {
     const settle = 1 - t;
-    weaponRoot.position.set(0.21, -0.27, -0.61);
+    weaponRoot.position.set(0.39, -0.43, -0.75);
     weaponRoot.rotation.set(
       NEUTRAL.weaponRotation[0] - settle * 0.2,
       NEUTRAL.weaponRotation[1] + side * settle * 0.24,
@@ -371,18 +399,29 @@ function applyPose(weaponRoot, rightArm, leftArm, pose = {}) {
     rightArm.rotation.set(-0.2 - settle * 0.25, -0.16, -0.2 + side * settle * 0.1);
     leftArm.rotation.set(-0.16 - settle * 0.2, 0.19, 0.25 - side * settle * 0.08);
   } else if (state === WeaponState.BLOCKING) {
-    weaponRoot.position.set(0.03, -0.06, -0.72);
-    weaponRoot.rotation.set(0.13, -0.08, 0.8);
-    rightArm.position.set(0.35, -0.35, -0.42);
-    rightArm.rotation.set(0.2, -0.18, -0.26);
-    leftArm.position.set(-0.49, -0.39, -0.42);
-    leftArm.rotation.set(0.22, -0.58, 0.32);
+    weaponRoot.position.set(isSpear ? 0.05 : 0.08, -0.27, -0.88);
+    weaponRoot.rotation.set(isSpear ? 0.04 : 0.1, -0.05, isSpear ? 0.58 : 0.72);
+    rightArm.position.set(0.34, -0.43, -0.53);
+    rightArm.rotation.set(0.13, -0.16, -0.22);
+    leftArm.position.set(-0.34, -0.45, -0.58);
+    leftArm.rotation.set(0.16, -0.48, 0.27);
   } else if (state === WeaponState.STAGGERED) {
-    weaponRoot.position.set(0.31, -0.38, -0.48);
+    weaponRoot.position.set(0.43, -0.49, -0.61);
     weaponRoot.rotation.set(0.12, 0.34, -0.24);
     rightArm.rotation.set(-0.04, -0.24, -0.32);
     leftArm.rotation.set(-0.03, 0.2, 0.34);
   }
+}
+
+function renderOrderFor(object) {
+  if (/Blade|Point|SpearHead|SpearSocket/.test(object.name)) {
+    return VIEWMODEL_RENDER_ORDER.blade;
+  }
+  if (/Grip|Crossguard|Quillon|Guard|Pommel|Shaft|ButtCap/.test(object.name)) {
+    return VIEWMODEL_RENDER_ORDER.weapon;
+  }
+  if (/Hand|Glove/.test(object.name)) return VIEWMODEL_RENDER_ORDER.hand;
+  return VIEWMODEL_RENDER_ORDER.arm;
 }
 
 function setTransform(object, position, rotation) {

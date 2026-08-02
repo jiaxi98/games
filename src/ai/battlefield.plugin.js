@@ -3,6 +3,7 @@ import { FactionId } from '../actors/Factions.js';
 import { FormationType } from './Formation.js';
 import { createBattlefieldSimulation } from '../simulation/BattlefieldSimulation.js';
 import { SquadOrder } from '../simulation/SquadController.js';
+import { RouteSquadId } from '../gameplay/RouteEncounterDirector.js';
 
 export const name = 'ashen-standard-battlefield';
 
@@ -19,9 +20,9 @@ export function install(context) {
   scene.add(simulation.object3d);
 
   const allied = simulation.createSquad({
-    id: 'ashen-vanguard',
+    id: RouteSquadId.ALLIED_RETINUE,
     factionId: FactionId.VANGUARD,
-    count: 10,
+    count: 8,
     role: 'man-at-arms',
     captain: true,
     standard: true,
@@ -31,20 +32,82 @@ export function install(context) {
     formation: FormationType.LINE,
     morale: { initial: 0.56, discipline: 0.58 },
   });
-  const spearLine = simulation.createSquad({
-    id: 'orens-spear-line',
+  simulation.createSquad({
+    id: RouteSquadId.OPENING_ALLIES,
+    factionId: FactionId.VANGUARD,
+    count: 3,
+    role: 'man-at-arms',
+    anchor: new Vector3(8, 0, 95),
+    forward: new Vector3(0.2, 0, -1),
+    retreatPoint: new Vector3(-5, 0, 125),
+    formation: FormationType.SKIRMISH,
+    morale: { initial: 0.62, discipline: 0.48 },
+    active: false,
+  });
+  simulation.createSquad({
+    id: RouteSquadId.OPENING_ENEMIES,
     factionId: FactionId.SAINT_ORENS,
-    count: 14,
-    captain: true,
+    count: 4,
+    role: 'man-at-arms',
+    anchor: new Vector3(17, 0, 84),
+    forward: new Vector3(-0.2, 0, 1),
+    retreatPoint: new Vector3(28, 0, 58),
+    formation: FormationType.SKIRMISH,
+    morale: { initial: 0.66, discipline: 0.44 },
+    active: false,
+  });
+  simulation.createSquad({
+    id: RouteSquadId.RALLY_PRESSURE,
+    factionId: FactionId.SAINT_ORENS,
+    count: 4,
+    role: 'man-at-arms',
+    anchor: new Vector3(-12, 0, 16),
+    forward: new Vector3(-1, 0, 0.2),
+    retreatPoint: new Vector3(30, 0, 5),
+    formation: FormationType.SKIRMISH,
+    morale: { initial: 0.7, discipline: 0.5 },
+    active: false,
+  });
+  const spearLine = simulation.createSquad({
+    id: RouteSquadId.SPEAR_LINE,
+    factionId: FactionId.SAINT_ORENS,
+    count: 8,
     standard: true,
     anchor: new Vector3(4, 0, -13),
     forward: new Vector3(0, 0, 1),
     retreatPoint: new Vector3(0, 0, -46),
     formation: FormationType.SPEAR_WALL,
     morale: { initial: 0.9, discipline: 0.67 },
+    active: false,
   });
-  allied.issueOrder(SquadOrder.ADVANCE, { target: new Vector3(-2, 0, -10) });
-  spearLine.issueOrder(SquadOrder.ADVANCE, { target: new Vector3(2, 0, -4) });
+  simulation.createSquad({
+    id: RouteSquadId.BRIDGE_GUARD,
+    factionId: FactionId.SAINT_ORENS,
+    count: 3,
+    role: 'spearman',
+    standard: true,
+    anchor: new Vector3(-7, 0, -152),
+    forward: new Vector3(0, 0, 1),
+    retreatPoint: new Vector3(-4, 0, -205),
+    formation: FormationType.SPEAR_WALL,
+    morale: { initial: 0.88, discipline: 0.7 },
+    active: false,
+  });
+  simulation.createSquad({
+    id: RouteSquadId.CAPTAIN_GUARD,
+    factionId: FactionId.SAINT_ORENS,
+    count: 1,
+    role: 'man-at-arms',
+    captain: true,
+    anchor: new Vector3(-4, 0, -187),
+    forward: new Vector3(0, 0, 1),
+    retreatPoint: new Vector3(0, 0, -235),
+    formation: FormationType.LINE,
+    morale: { initial: 0.96, discipline: 0.78 },
+    active: false,
+  });
+  allied.issueOrder(SquadOrder.HOLD);
+  spearLine.issueOrder(SquadOrder.HOLD);
   simulation.addDistantFormation({
     id: 'ashen-reserve-belt',
     factionId: FactionId.VANGUARD,
@@ -59,7 +122,7 @@ export function install(context) {
     id: 'orens-ford-ranks',
     factionId: FactionId.SAINT_ORENS,
     count: 120,
-    anchor: new Vector3(8, 0, -60),
+    anchor: new Vector3(8, 0, -215),
     forward: new Vector3(-0.04, 0, 1),
     frontage: 24,
     state: 'ordered',
