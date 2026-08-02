@@ -29,9 +29,9 @@ const DEFAULT_TUTORIALS = Object.freeze({
   look: { keys: ['MOUSE'], text: 'Look across the field' },
   attack: { keys: ['LMB'], text: 'Attack when your weapon has room to travel' },
   guard: { keys: ['RMB'], text: 'Guard. A well-timed defence preserves stamina' },
-  shove: { keys: ['F'], text: 'Shove to make space or disturb a guarded enemy' },
+  heavy: { keys: ['SHIFT', 'LMB'], text: 'Commit to a heavy attack' },
   interact: { keys: ['E'], text: 'Recover the fallen standard' },
-  command: { keys: ['1–4'], text: 'Give a nearby retinue command' },
+  command: { keys: ['Q', 'R', 'F'], text: 'Rally, brace, or order the advance' },
 });
 
 /**
