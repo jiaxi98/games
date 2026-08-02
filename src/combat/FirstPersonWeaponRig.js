@@ -6,8 +6,10 @@ import {
   Group,
   Mesh,
   MeshStandardMaterial,
+  Quaternion,
   SphereGeometry,
   TorusGeometry,
+  Vector3,
 } from 'three';
 import { WeaponState } from './MeleeCombatController.js';
 
@@ -27,6 +29,9 @@ const VIEWMODEL_RENDER_ORDER = Object.freeze({
   weapon: 22,
   blade: 23,
 });
+const HAND_LOCAL_POSITION = Object.freeze([0, 0, -0.66]);
+const ARM_REACH = 0.66;
+const MAX_SHOULDER_ADJUSTMENT = 0.58;
 
 export function createFirstPersonWeaponRig({
   weapon = 'longsword',
@@ -124,6 +129,7 @@ export function createFirstPersonWeaponRig({
   let recoil = 0;
   let recoilSide = 0;
   applyPose(weaponRoot, rightArm, leftArm, { state: WeaponState.IDLE, progress: 0 });
+  solveGripConstraints(root, weaponRoot, rightArm, leftArm);
 
   return {
     object3d: root,
@@ -136,10 +142,29 @@ export function createFirstPersonWeaponRig({
       root.rotation.x = recoil * 0.035;
       root.rotation.z = settle * 0.003 - recoilSide * recoil * 0.04;
       applyPose(weaponRoot, rightArm, leftArm, pose);
+      solveGripConstraints(root, weaponRoot, rightArm, leftArm);
     },
     applyImpulse({ intensity = 0.5, direction = null } = {}) {
       recoil = Math.max(recoil, Math.max(0, Math.min(1, intensity)));
       recoilSide = direction?.x ? Math.sign(direction.x) : 0;
+    },
+    getGripErrors() {
+      return measureGripErrors(root, rightArm, leftArm);
+    },
+    getPoseSample() {
+      root.updateMatrixWorld(true);
+      const primaryGrip = weaponRoot.getObjectByName('PrimaryGripAnchor');
+      const secondaryGrip = weaponRoot.getObjectByName('SecondaryGripAnchor');
+      return {
+        weaponPosition: weaponRoot.position.toArray(),
+        weaponRotation: weaponRoot.rotation.toArray().slice(0, 3),
+        weaponQuaternion: weaponRoot.quaternion.toArray(),
+        primaryGrip: primaryGrip.getWorldPosition(new Vector3()).toArray(),
+        secondaryGrip: secondaryGrip.getWorldPosition(new Vector3()).toArray(),
+        rightHand: rightArm.userData.hand.getWorldPosition(new Vector3()).toArray(),
+        leftHand: leftArm.userData.hand.getWorldPosition(new Vector3()).toArray(),
+        gripErrors: measureGripErrors(root, rightArm, leftArm),
+      };
     },
     dispose() {
       root.traverse((object) => object.geometry?.dispose());
@@ -195,7 +220,7 @@ function createArm({
   hand.name = `${name}:Hand`;
   hand.rotation.x = Math.PI / 2;
   hand.rotation.z = handedness * 0.08;
-  hand.position.z = -0.66;
+  hand.position.set(...HAND_LOCAL_POSITION);
   arm.add(hand);
 
   const gloveBack = new Mesh(new BoxGeometry(0.105, 0.032, 0.1), leather);
@@ -205,7 +230,6 @@ function createArm({
   arm.add(gloveBack);
 
   arm.userData.hand = hand;
-  arm.userData.gripOffset = handedness > 0 ? -0.09 : -0.2;
   return arm;
 }
 
@@ -278,6 +302,11 @@ function createSword(root, {
   pommel.position.z = 0.1;
   pommel.scale.z = 0.78;
   root.add(pommel);
+
+  createGripAnchors(root, {
+    primary: [0, 0, 0.015],
+    secondary: [0, 0, -0.15],
+  });
 }
 
 function createSpear(root, { wood, leather, steel, steelDark }) {
@@ -311,106 +340,210 @@ function createSpear(root, { wood, leather, steel, steelDark }) {
   buttCap.rotation.x = Math.PI / 2;
   buttCap.position.z = 0.37;
   root.add(buttCap);
+
+  createGripAnchors(root, {
+    primary: [0, 0, 0.1],
+    secondary: [0, 0, -0.2],
+  });
 }
 
 function applyPose(weaponRoot, rightArm, leftArm, pose = {}) {
   const state = pose.state ?? WeaponState.IDLE;
   const t = ease(pose.progress ?? 0);
   const attack = pose.attack ?? {};
-  const side = attack.arc?.[0] < 0 ? -1 : 1;
   const isSpear = Boolean(weaponRoot.getObjectByName('SpearShaft'));
-
-  setTransform(
-    weaponRoot,
-    NEUTRAL.weaponPosition,
-    NEUTRAL.weaponRotation,
-  );
-  setTransform(
-    rightArm,
-    NEUTRAL.rightArmPosition,
-    NEUTRAL.rightArmRotation,
-  );
-  setTransform(
-    leftArm,
-    NEUTRAL.leftArmPosition,
-    NEUTRAL.leftArmRotation,
-  );
+  const neutral = neutralFrame();
+  let frame = neutral;
 
   if (state === WeaponState.WINDUP) {
-    if (attack.thrust) {
-      weaponRoot.position.set(0.37 + t * 0.08, -0.4 + t * 0.04, -0.58 + t * 0.18);
-      weaponRoot.rotation.set(0.06, -0.04 - t * 0.16, -0.025);
-      rightArm.position.set(0.48, -0.53, -0.44 + t * 0.08);
-      rightArm.rotation.set(-0.23 - t * 0.25, -0.2, -0.22);
-      leftArm.position.set(-0.08, -0.51, -0.58 - t * 0.05);
-      leftArm.rotation.set(-0.18 - t * 0.22, 0.15, 0.17);
-    } else if (attack.vertical) {
-      weaponRoot.position.set(0.36, -0.34 + t * 0.3, -0.75 + t * 0.06);
-      weaponRoot.rotation.set(0.18 + t * 0.7, 0.02, -0.1);
-      rightArm.position.set(0.43, -0.51 + t * 0.14, -0.48);
-      leftArm.position.set(-0.12, -0.52 + t * 0.11, -0.55);
-      rightArm.rotation.set(-0.34 - t * 0.42, -0.1, -0.22);
-      leftArm.rotation.set(-0.28 - t * 0.37, 0.1, 0.15);
-    } else {
-      weaponRoot.position.set(0.4 + side * t * 0.2, -0.4 + t * 0.11, -0.72 + t * 0.08);
-      weaponRoot.rotation.set(0.22 + t * 0.13, 0.14 + side * t * 0.9, -side * t * 0.28);
-      rightArm.position.set(0.48 + side * t * 0.08, -0.55 + t * 0.08, -0.48);
-      leftArm.position.set(-0.16 + side * t * 0.08, -0.56 + t * 0.05, -0.56);
-      rightArm.rotation.set(-0.25 - t * 0.28, -0.1 + side * t * 0.36, -0.16 - side * t * 0.23);
-      leftArm.rotation.set(-0.2 - t * 0.23, 0.13 - side * t * 0.2, 0.18 + side * t * 0.16);
-    }
+    frame = blendFrame(neutral, attackFrames(attack).chamber, t);
   } else if (state === WeaponState.ACTIVE) {
-    if (attack.thrust) {
-      weaponRoot.position.set(0.29, -0.36, -0.7 - t * 0.74);
-      weaponRoot.rotation.set(0.04, 0.015, -0.015);
-      rightArm.position.set(0.45 - t * 0.08, -0.52 + t * 0.07, -0.49 - t * 0.14);
-      leftArm.position.set(-0.11 + t * 0.08, -0.54 + t * 0.06, -0.59 - t * 0.13);
-      rightArm.rotation.set(-0.42 - t * 0.25, -0.11, -0.17);
-      leftArm.rotation.set(-0.35 - t * 0.22, 0.08, 0.13);
-    } else if (attack.vertical) {
-      weaponRoot.position.set(0.32, -0.14 - t * 0.26, -0.79);
-      weaponRoot.rotation.set(0.88 - t * 1.18, 0.02, -0.07);
-      rightArm.position.set(0.42, -0.38 - t * 0.12, -0.48);
-      leftArm.position.set(-0.13, -0.42 - t * 0.09, -0.55);
-      rightArm.rotation.set(-0.78 + t * 0.42, -0.07, -0.2);
-      leftArm.rotation.set(-0.67 + t * 0.36, 0.07, 0.15);
-    } else {
-      const [start, end] = attack.arc ?? [-0.8, 0.7];
-      const yaw = start + (end - start) * t;
-      weaponRoot.position.set(
-        0.38 - side * t * 0.22,
-        -0.38 + Math.sin(t * Math.PI) * 0.08,
-        -0.78,
-      );
-      weaponRoot.rotation.set(0.32 - t * 0.12, yaw * 0.96, side * (0.18 - t * 0.32));
-      rightArm.position.set(0.49 - side * t * 0.1, -0.52, -0.49);
-      leftArm.position.set(-0.15 - side * t * 0.08, -0.54, -0.56);
-      rightArm.rotation.set(-0.54 + t * 0.16, yaw * 0.28, -0.22 + side * t * 0.18);
-      leftArm.rotation.set(-0.43 + t * 0.14, yaw * 0.2, 0.2 - side * t * 0.12);
-    }
+    const frames = attackFrames(attack);
+    frame = blendFrame(frames.chamber, frames.strike, t);
+    if (!attack.thrust && !attack.vertical) frame.weaponPosition[1] += Math.sin(t * Math.PI) * 0.08;
   } else if (state === WeaponState.RECOVERY) {
-    const settle = 1 - t;
-    weaponRoot.position.set(0.39, -0.43, -0.75);
-    weaponRoot.rotation.set(
-      NEUTRAL.weaponRotation[0] - settle * 0.2,
-      NEUTRAL.weaponRotation[1] + side * settle * 0.24,
-      NEUTRAL.weaponRotation[2] - side * settle * 0.1,
-    );
-    rightArm.rotation.set(-0.2 - settle * 0.25, -0.16, -0.2 + side * settle * 0.1);
-    leftArm.rotation.set(-0.16 - settle * 0.2, 0.19, 0.25 - side * settle * 0.08);
+    frame = blendFrame(attackFrames(attack).strike, neutral, t);
   } else if (state === WeaponState.BLOCKING) {
-    weaponRoot.position.set(isSpear ? 0.05 : 0.08, -0.27, -0.88);
-    weaponRoot.rotation.set(isSpear ? 0.04 : 0.1, -0.05, isSpear ? 0.58 : 0.72);
-    rightArm.position.set(0.34, -0.43, -0.53);
-    rightArm.rotation.set(0.13, -0.16, -0.22);
-    leftArm.position.set(-0.34, -0.45, -0.58);
-    leftArm.rotation.set(0.16, -0.48, 0.27);
+    frame = blendFrame(neutral, blockFrame(isSpear), t);
   } else if (state === WeaponState.STAGGERED) {
-    weaponRoot.position.set(0.43, -0.49, -0.61);
-    weaponRoot.rotation.set(0.12, 0.34, -0.24);
-    rightArm.rotation.set(-0.04, -0.24, -0.32);
-    leftArm.rotation.set(-0.03, 0.2, 0.34);
+    frame = staggerFrame();
   }
+
+  applyFrame(weaponRoot, rightArm, leftArm, frame);
+}
+
+function neutralFrame() {
+  return {
+    weaponPosition: [...NEUTRAL.weaponPosition],
+    weaponRotation: [...NEUTRAL.weaponRotation],
+    rightArmPosition: [...NEUTRAL.rightArmPosition],
+    rightArmRotation: [...NEUTRAL.rightArmRotation],
+    leftArmPosition: [...NEUTRAL.leftArmPosition],
+    leftArmRotation: [...NEUTRAL.leftArmRotation],
+  };
+}
+
+function attackFrames(attack) {
+  const side = attack.arc?.[0] < 0 ? -1 : 1;
+  if (attack.thrust) {
+    return {
+      chamber: frame(
+        [0.45, -0.36, -0.4], [0.06, -0.2, -0.025],
+        [0.48, -0.53, -0.36], [-0.48, -0.2, -0.22],
+        [-0.08, -0.51, -0.63], [-0.4, 0.15, 0.17],
+      ),
+      strike: frame(
+        [0.29, -0.36, -1.44], [0.04, 0.015, -0.015],
+        [0.37, -0.45, -0.63], [-0.67, -0.11, -0.17],
+        [-0.03, -0.48, -0.72], [-0.57, 0.08, 0.13],
+      ),
+    };
+  }
+  if (attack.vertical) {
+    return {
+      chamber: frame(
+        [0.36, -0.04, -0.69], [0.88, 0.02, -0.1],
+        [0.43, -0.37, -0.48], [-0.76, -0.1, -0.22],
+        [-0.12, -0.41, -0.55], [-0.65, 0.1, 0.15],
+      ),
+      strike: frame(
+        [0.32, -0.4, -0.79], [-0.3, 0.02, -0.07],
+        [0.42, -0.5, -0.48], [-0.36, -0.07, -0.2],
+        [-0.13, -0.51, -0.55], [-0.31, 0.07, 0.15],
+      ),
+    };
+  }
+
+  const [start, end] = attack.arc ?? [-0.8, 0.7];
+  return {
+    chamber: frame(
+      [0.4 + side * 0.2, -0.29, -0.64], [0.35, start * 0.96, -side * 0.28],
+      [0.48 + side * 0.08, -0.47, -0.48], [-0.53, -0.1 + side * 0.36, -0.16 - side * 0.23],
+      [-0.16 + side * 0.08, -0.51, -0.56], [-0.43, 0.13 - side * 0.2, 0.18 + side * 0.16],
+    ),
+    strike: frame(
+      [0.38 - side * 0.22, -0.38, -0.78], [0.2, end * 0.96, -side * 0.14],
+      [0.49 - side * 0.1, -0.52, -0.49], [-0.38, end * 0.28, -0.22 + side * 0.18],
+      [-0.15 - side * 0.08, -0.54, -0.56], [-0.29, end * 0.2, 0.2 - side * 0.12],
+    ),
+  };
+}
+
+function blockFrame(isSpear) {
+  return frame(
+    [isSpear ? 0.05 : 0.08, -0.27, -0.88],
+    [isSpear ? 0.04 : 0.1, -0.05, isSpear ? 0.58 : 0.72],
+    [0.34, -0.43, -0.53], [0.13, -0.16, -0.22],
+    [-0.34, -0.45, -0.58], [0.16, -0.48, 0.27],
+  );
+}
+
+function staggerFrame() {
+  return frame(
+    [0.43, -0.49, -0.61], [0.12, 0.34, -0.24],
+    NEUTRAL.rightArmPosition, [-0.04, -0.24, -0.32],
+    NEUTRAL.leftArmPosition, [-0.03, 0.2, 0.34],
+  );
+}
+
+function frame(
+  weaponPosition,
+  weaponRotation,
+  rightArmPosition,
+  rightArmRotation,
+  leftArmPosition,
+  leftArmRotation,
+) {
+  return {
+    weaponPosition: [...weaponPosition],
+    weaponRotation: [...weaponRotation],
+    rightArmPosition: [...rightArmPosition],
+    rightArmRotation: [...rightArmRotation],
+    leftArmPosition: [...leftArmPosition],
+    leftArmRotation: [...leftArmRotation],
+  };
+}
+
+function blendFrame(from, to, t) {
+  return {
+    weaponPosition: blendArray(from.weaponPosition, to.weaponPosition, t),
+    weaponRotation: blendArray(from.weaponRotation, to.weaponRotation, t),
+    rightArmPosition: blendArray(from.rightArmPosition, to.rightArmPosition, t),
+    rightArmRotation: blendArray(from.rightArmRotation, to.rightArmRotation, t),
+    leftArmPosition: blendArray(from.leftArmPosition, to.leftArmPosition, t),
+    leftArmRotation: blendArray(from.leftArmRotation, to.leftArmRotation, t),
+  };
+}
+
+function blendArray(from, to, t) {
+  return from.map((value, index) => value + (to[index] - value) * t);
+}
+
+function applyFrame(weaponRoot, rightArm, leftArm, poseFrame) {
+  setTransform(weaponRoot, poseFrame.weaponPosition, poseFrame.weaponRotation);
+  setTransform(rightArm, poseFrame.rightArmPosition, poseFrame.rightArmRotation);
+  setTransform(leftArm, poseFrame.leftArmPosition, poseFrame.leftArmRotation);
+}
+
+function createGripAnchors(root, { primary, secondary }) {
+  const primaryAnchor = new Group();
+  primaryAnchor.name = 'PrimaryGripAnchor';
+  primaryAnchor.position.set(...primary);
+  primaryAnchor.userData.gripRole = 'primary';
+  root.add(primaryAnchor);
+
+  const secondaryAnchor = new Group();
+  secondaryAnchor.name = 'SecondaryGripAnchor';
+  secondaryAnchor.position.set(...secondary);
+  secondaryAnchor.userData.gripRole = 'secondary';
+  root.add(secondaryAnchor);
+
+  root.userData.primaryGripAnchor = primaryAnchor;
+  root.userData.secondaryGripAnchor = secondaryAnchor;
+}
+
+function solveGripConstraints(root, weaponRoot, rightArm, leftArm) {
+  weaponRoot.updateMatrix();
+  solveArmToGrip(rightArm, weaponRoot.getObjectByName('PrimaryGripAnchor'));
+  solveArmToGrip(leftArm, weaponRoot.getObjectByName('SecondaryGripAnchor'));
+  root.updateMatrixWorld(true);
+}
+
+function solveArmToGrip(arm, anchor) {
+  const authoredShoulder = _authoredShoulder.copy(arm.position);
+  const target = _gripTarget.copy(anchor.position).applyMatrix4(anchor.parent.matrix);
+  const direction = _gripDirection.copy(target).sub(authoredShoulder);
+  if (direction.lengthSq() < 1e-8) direction.set(0, 0, -1);
+  direction.normalize();
+
+  _solvedShoulder.copy(target).addScaledVector(direction, -ARM_REACH);
+  _shoulderDelta.copy(_solvedShoulder).sub(authoredShoulder);
+  if (_shoulderDelta.length() > MAX_SHOULDER_ADJUSTMENT) {
+    _shoulderDelta.setLength(MAX_SHOULDER_ADJUSTMENT);
+    _solvedShoulder.copy(authoredShoulder).add(_shoulderDelta);
+  }
+  arm.position.copy(_solvedShoulder);
+
+  const desiredDirection = _desiredDirection.copy(target).sub(arm.position).normalize();
+  const authoredDirection = _authoredDirection
+    .set(...HAND_LOCAL_POSITION)
+    .normalize()
+    .applyQuaternion(arm.quaternion);
+  _armCorrection.setFromUnitVectors(authoredDirection, desiredDirection);
+  arm.quaternion.premultiply(_armCorrection);
+}
+
+function measureGripErrors(root, rightArm, leftArm) {
+  root.updateMatrixWorld(true);
+  const weaponRoot = root.getObjectByName('WeaponRoot');
+  const primary = weaponRoot.getObjectByName('PrimaryGripAnchor').getWorldPosition(_primaryGripWorld);
+  const secondary = weaponRoot.getObjectByName('SecondaryGripAnchor').getWorldPosition(_secondaryGripWorld);
+  const rightHand = rightArm.userData.hand.getWorldPosition(_rightHandWorld);
+  const leftHand = leftArm.userData.hand.getWorldPosition(_leftHandWorld);
+  return {
+    primary: rightHand.distanceTo(primary),
+    secondary: leftHand.distanceTo(secondary),
+  };
 }
 
 function renderOrderFor(object) {
@@ -433,3 +566,16 @@ function ease(value) {
   const t = Math.max(0, Math.min(1, value));
   return t * t * (3 - 2 * t);
 }
+
+const _authoredShoulder = new Vector3();
+const _gripTarget = new Vector3();
+const _gripDirection = new Vector3();
+const _solvedShoulder = new Vector3();
+const _shoulderDelta = new Vector3();
+const _desiredDirection = new Vector3();
+const _authoredDirection = new Vector3();
+const _armCorrection = new Quaternion();
+const _primaryGripWorld = new Vector3();
+const _secondaryGripWorld = new Vector3();
+const _rightHandWorld = new Vector3();
+const _leftHandWorld = new Vector3();

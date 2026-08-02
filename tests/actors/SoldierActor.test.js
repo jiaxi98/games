@@ -3,6 +3,7 @@ import {
   Box3,
   BoxGeometry,
   CylinderGeometry,
+  Vector3,
 } from 'three';
 import {
   FactionId,
@@ -142,6 +143,186 @@ describe('SoldierActor visuals', () => {
     captain.dispose();
   });
 
+  it('mounts shields to the left forearm and provides attack-specific clearance', () => {
+    const actor = createSoldierActor({
+      id: 'shield-clearance',
+      factionId: FactionId.SAINT_ORENS,
+      role: SoldierRole.MAN_AT_ARMS,
+    });
+
+    const { shieldMount, shield, leftForearm } = actor._parts;
+    expect(shieldMount.name).toBe('ShieldMount');
+    expect(shieldMount.parent).toBe(leftForearm);
+    expect(shield.parent).toBe(shieldMount);
+
+    actor.update(0, { speed: 0 });
+    const idle = shieldMount.position.clone();
+    const idleRotation = shieldMount.rotation.clone();
+
+    actor.update(0, {
+      combatPose: {
+        state: WeaponState.ACTIVE,
+        progress: 0.45,
+        attack: { arc: [0.9, -0.4] },
+      },
+    });
+    expect(shieldMount.position.x).toBeLessThan(idle.x - 0.09);
+    expect(shieldMount.position.z).toBeLessThan(idle.z - 0.04);
+    expect(Math.abs(shieldMount.rotation.y - idleRotation.y)).toBeGreaterThan(0.15);
+
+    actor.update(0, {
+      combatPose: { state: WeaponState.BLOCKING, progress: 0 },
+    });
+    expect(shieldMount.position.z).toBeGreaterThan(idle.z + 0.08);
+    expect(shieldMount.rotation.x).toBeGreaterThan(idleRotation.x + 0.15);
+
+    actor.dispose();
+  });
+
+  it('keeps stationary feet planted and drives stride phase from distance traveled', () => {
+    const actor = createSoldierActor({
+      id: 'distance-stride',
+      factionId: FactionId.VANGUARD,
+      role: SoldierRole.SPEARMAN,
+    });
+
+    const initialPhase = actor._stridePhase;
+    for (let frame = 0; frame < 60; frame += 1) actor.update(1 / 60, { speed: 3 });
+    expect(actor._stridePhase).toBeCloseTo(initialPhase, 10);
+    expect(actor._locomotionWeight).toBeLessThan(0.001);
+    expect(actor._parts.leftLeg.rotation.x).toBeCloseTo(0, 6);
+    expect(actor._parts.rightLeg.rotation.x).toBeCloseTo(0, 6);
+    expect(actor._parts.leftLeg.position.y).toBeCloseTo(0.75, 6);
+    expect(actor._parts.rightLeg.position.y).toBeCloseTo(0.75, 6);
+
+    actor.object3d.position.z += 0.335;
+    actor.update(0.1, { speed: 3.35 });
+    const quarterPhase = actor._stridePhase;
+    const expectedQuarter = Math.PI * 0.5;
+    expect(positiveAngleDelta(initialPhase, quarterPhase)).toBeCloseTo(expectedQuarter, 1);
+    expect(actor._locomotionWeight).toBeGreaterThan(0.65);
+
+    actor.object3d.position.z += 0.335;
+    actor.update(0.1, { speed: 3.35 });
+    expect(positiveAngleDelta(initialPhase, actor._stridePhase)).toBeCloseTo(Math.PI, 1);
+
+    actor.dispose();
+  });
+
+  it('uses impact direction, outcome, severity, and hit zone for distinct recovering reactions', () => {
+    const actor = createSoldierActor({
+      id: 'impact-reactions',
+      factionId: FactionId.SAINT_ORENS,
+      role: SoldierRole.MAN_AT_ARMS,
+    });
+    const front = new Vector3(0, 0, -1);
+
+    actor.combatant.receiveImpact({
+      damage: 5,
+      damageType: 'blunt',
+      direction: new Vector3(1, 0, -0.2),
+      hitZone: 'torso',
+      severity: 0.7,
+    });
+    actor.update(1 / 60);
+    const rightBodyLean = actor._parts.upperBody.rotation.z;
+    expect(actor._reaction.kind).toBe('body');
+    expect(rightBodyLean).toBeLessThan(-0.2);
+
+    actor.combatant.receiveImpact({
+      damage: 5,
+      damageType: 'blunt',
+      direction: new Vector3(-1, 0, -0.2),
+      hitZone: 'torso',
+      severity: 0.7,
+    });
+    actor.update(1 / 60);
+    expect(actor._parts.upperBody.rotation.z).toBeGreaterThan(0.2);
+
+    actor.combatant.receiveImpact({
+      damage: 4,
+      damageType: 'blunt',
+      direction: front,
+      hitZone: 'head',
+      severity: 0.75,
+    });
+    actor.update(1 / 60);
+    expect(actor._reaction.kind).toBe('head');
+    expect(Math.abs(actor._parts.head.rotation.x)).toBeGreaterThan(0.35);
+    expect(Math.abs(actor._parts.leftLeg.rotation.x)).toBeLessThan(0.08);
+
+    actor.combatant.receiveImpact({
+      damage: 4,
+      damageType: 'blunt',
+      direction: new Vector3(-0.8, 0, -0.2),
+      hitZone: 'legs',
+      severity: 0.75,
+    });
+    actor.update(1 / 60);
+    expect(actor._reaction.kind).toBe('leg');
+    expect(Math.abs(actor._parts.leftLeg.rotation.z)).toBeGreaterThan(0.15);
+    expect(actor._parts.body.position.y).toBeLessThan(-0.05);
+
+    actor.combatant.setGuard({
+      active: true,
+      facing: new Vector3(0, 0, 1),
+      now: 1,
+      startedAt: 0,
+      canParry: false,
+      stability: 20,
+    });
+    actor.combatant.receiveImpact({
+      damage: 8,
+      damageType: 'blunt',
+      direction: front,
+      hitZone: 'torso',
+      severity: 0.8,
+    });
+    actor.update(1 / 60);
+    expect(actor._reaction.kind).toBe('block');
+    const blockedShieldPitch = actor._parts.shieldMount.rotation.x;
+
+    actor.combatant.setGuard({
+      active: true,
+      facing: new Vector3(0, 0, 1),
+      now: 1.04,
+      startedAt: 1,
+      canParry: true,
+    });
+    actor.combatant.receiveImpact({
+      damage: 8,
+      damageType: 'blunt',
+      direction: new Vector3(0.7, 0, -0.7),
+      hitZone: 'torso',
+      severity: 0.8,
+    });
+    actor.update(1 / 60);
+    expect(actor._reaction.kind).toBe('parry');
+    expect(Math.abs(actor._parts.rightArm.rotation.y)).toBeGreaterThan(0.15);
+    expect(actor._parts.shieldMount.rotation.x).toBeLessThan(blockedShieldPitch - 0.1);
+
+    actor.combatant.clearGuard();
+    actor.combatant.receiveImpact({
+      damage: 3,
+      damageType: 'blunt',
+      poiseDamage: 999,
+      direction: front,
+      hitZone: 'torso',
+      severity: 0.65,
+    });
+    actor.update(1 / 60);
+    expect(actor._reaction.kind).toBe('stagger');
+    expect(Math.abs(actor._parts.upperBody.rotation.x)).toBeGreaterThan(0.35);
+
+    for (let frame = 0; frame < 80; frame += 1) actor.update(1 / 60);
+    expect(actor._reaction).toBeNull();
+    expect(actor._parts.upperBody.rotation.x).toBeCloseTo(0, 4);
+    expect(actor._parts.upperBody.rotation.z).toBeCloseTo(0, 4);
+    expect(actor._parts.head.rotation.x).toBeCloseTo(0, 4);
+
+    actor.dispose();
+  });
+
   it('selects three deterministic collapse structures and aligns each to ground', () => {
     const actorsByVariant = new Map();
     for (let index = 0; actorsByVariant.size < 3 && index < 40; index += 1) {
@@ -158,12 +339,23 @@ describe('SoldierActor visuals', () => {
     for (const [variant, actor] of actorsByVariant) {
       if (actor.id === 'collapse:0') repeatVariant = variant;
       actor.combatant.receiveImpact({ damage: 999, damageType: 'blunt' });
+      actor.update(1 / 120);
+      const firstDisplacement = collapseOriginDisplacement(actor);
+      expect(firstDisplacement).toBeLessThan(0.002);
+      for (let frame = 0; frame < 29; frame += 1) actor.update(1 / 60);
+      const midDisplacement = collapseOriginDisplacement(actor);
+      expect(midDisplacement).toBeGreaterThan(0.04);
+      expect(midDisplacement).toBeLessThan(0.34);
       for (let frame = 0; frame < 90; frame += 1) actor.update(1 / 60);
       const bounds = new Box3().setFromObject(actor._parts.collapseRoot);
+      const finalDisplacement = collapseOriginDisplacement(actor);
 
       expect(actor.object3d.userData.deathVariant).toBe(variant);
       expect(Math.abs(actor._parts.collapseRoot.rotation.z)
         + Math.abs(actor._parts.collapseRoot.rotation.x)).toBeGreaterThan(1.2);
+      expect(finalDisplacement).toBeGreaterThan(midDisplacement);
+      expect(finalDisplacement).toBeGreaterThan(0.25);
+      expect(finalDisplacement).toBeLessThan(0.38);
       expect(bounds.min.y).toBeGreaterThanOrEqual(-0.08);
       expect(bounds.min.y).toBeLessThan(0.02);
       actor.dispose();
@@ -177,3 +369,18 @@ describe('SoldierActor visuals', () => {
     repeat.dispose();
   });
 });
+
+function positiveAngleDelta(start, end) {
+  const tau = Math.PI * 2;
+  return ((end - start) % tau + tau) % tau;
+}
+
+function horizontalLength(vector) {
+  return Math.hypot(vector.x, vector.z);
+}
+
+function collapseOriginDisplacement(actor) {
+  actor.object3d.updateWorldMatrix(true, true);
+  const origin = actor._parts.collapseRoot.getWorldPosition(new Vector3());
+  return horizontalLength(origin.sub(actor.object3d.position));
+}

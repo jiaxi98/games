@@ -73,6 +73,11 @@ export class SoldierActor {
     this.height = role === SoldierRole.CAPTAIN ? 2.18 : 2.08;
     this.mass = role === SoldierRole.CAPTAIN ? 1.35 : 1;
     this._time = (hashString(String(id ?? 'soldier')) % 1000) * 0.013;
+    this._stridePhase = (
+      (hashString(`${String(id ?? role)}:stride`) % 1000) / 1000
+    ) * Math.PI * 2;
+    this._locomotionWeight = 0;
+    this._lastLocomotionPosition = this.object3d.position.clone();
     this._deathVariant = hashString(String(id ?? role)) % 3;
     this._materials = [];
     this._geometries = [];
@@ -98,15 +103,18 @@ export class SoldierActor {
     this.combatant.addEventListener('impact', (event) => {
       this._lastImpact = event.result;
       this._impactFlash = 0.12;
+      this._reaction = createReactionState(this, event.result, event.impact);
     });
     this.combatant.addEventListener('death', () => {
       this._deathTime = 0;
+      this._reaction = null;
     });
     this.setLod(0);
   }
 
   setPosition(x, y, z) {
     this.object3d.position.set(x, y, z);
+    this._lastLocomotionPosition.copy(this.object3d.position);
     return this;
   }
 
@@ -148,33 +156,58 @@ export class SoldierActor {
 
     if (!this.combatant.alive) {
       this._deathTime = (this._deathTime ?? 0) + dt;
+      this._lastLocomotionPosition.copy(this.object3d.position);
       animateDeathCollapse(this.object3d, this._parts, this._deathVariant, this._deathTime);
       return;
     }
 
+    this.object3d.rotation.x = 0;
+    this.object3d.rotation.z = 0;
     this._parts.collapseRoot.position.set(0, 0, 0);
     this._parts.collapseRoot.rotation.set(0, 0, 0);
-    const stride = Math.min(1, speed / 3.4);
-    const gait = Math.sin(this._time * (5.5 + speed * 1.3));
-    const stepLift = Math.max(0, gait);
-    this._parts.leftLeg.rotation.x = gait * 0.48 * stride;
-    this._parts.rightLeg.rotation.x = -gait * 0.48 * stride;
-    this._parts.leftLeg.position.y = 0.75 + stepLift * 0.035 * stride;
-    this._parts.rightLeg.position.y = 0.75 + Math.max(0, -gait) * 0.035 * stride;
-    this._parts.body.position.y = Math.abs(gait) * 0.022 * stride;
-    this._parts.body.rotation.y = 0;
-    this._parts.body.rotation.z = moraleState === 'routed' ? gait * 0.09 : gait * 0.018 * stride;
-    this._parts.head.rotation.y = -gait * 0.025 * stride;
-    this._parts.head.rotation.z = moraleState === 'routed' ? -gait * 0.04 : 0;
-    animateCombatBody(this._parts, combatPose, gait, stride, this.weapon, this.role);
+    updateLocomotion(this, dt, speed);
+    const leftStep = sampleLegGait(this._stridePhase);
+    const rightStep = sampleLegGait(this._stridePhase + Math.PI);
+    const stride = this._locomotionWeight;
+    const gait = clamp(
+      (leftStep.swing - rightStep.swing) / 0.76,
+      -1,
+      1,
+    );
+    const pelvisShift = (
+      (rightStep.support - leftStep.support) * 0.038
+    ) * stride;
 
-    if (this._impactFlash > 0) {
-      this._parts.body.rotation.x = -0.14;
-      this._parts.head.rotation.x = 0.09;
-    } else {
-      this._parts.body.rotation.x *= Math.max(0, 1 - dt * 8);
-      this._parts.head.rotation.x *= Math.max(0, 1 - dt * 9);
-    }
+    this._parts.leftLeg.rotation.set(leftStep.swing * 0.52 * stride, 0, 0);
+    this._parts.rightLeg.rotation.set(rightStep.swing * 0.52 * stride, 0, 0);
+    this._parts.leftLeg.position.set(-0.17, 0.75 + leftStep.lift * 0.075 * stride, 0);
+    this._parts.rightLeg.position.set(0.17, 0.75 + rightStep.lift * 0.075 * stride, 0);
+    this._parts.body.position.y = (
+      (leftStep.lift + rightStep.lift) * 0.012
+      + Math.abs(pelvisShift) * 0.16
+    ) * stride;
+    this._parts.body.rotation.set(
+      0,
+      0,
+      moraleState === 'routed' ? gait * 0.09 * stride : -pelvisShift * 0.52,
+    );
+    this._parts.head.rotation.set(
+      0,
+      -gait * 0.025 * stride,
+      moraleState === 'routed' ? -gait * 0.04 * stride : pelvisShift * 0.32,
+    );
+    animateCombatBody(
+      this._parts,
+      combatPose,
+      gait,
+      stride,
+      this.weapon,
+      this.role,
+      pelvisShift,
+    );
+    animateShieldMount(this._parts, combatPose, this.role);
+    advanceReaction(this, dt);
+    applyReactionPose(this._parts, this._reaction);
   }
 
   dispose() {
@@ -369,12 +402,14 @@ function buildSoldierMesh(root, actor, faction) {
     weaponRoot.add(pommel);
   }
 
+  const shieldMount = new Group();
+  shieldMount.name = 'ShieldMount';
+  leftArm.userData.forearm.add(shieldMount);
+
   let shield = null;
   if (armored) {
     shield = createShield(actor, faction, cloth, clothSecondary, heraldry, leather, iron);
-    shield.position.set(0, -0.23, 0.12);
-    shield.rotation.set(-0.08, 0.04, 0);
-    leftArm.add(shield);
+    shieldMount.add(shield);
   }
 
   if (actor.role === SoldierRole.STANDARD_BEARER || actor.role === SoldierRole.CAPTAIN) {
@@ -399,6 +434,7 @@ function buildSoldierMesh(root, actor, faction) {
     leftLeg,
     rightLeg,
     weaponRoot,
+    shieldMount,
     shield,
   };
 }
@@ -551,7 +587,7 @@ function defaultArmor(role) {
   return { cut: 0.12, pierce: 0.06, blunt: 0.03 };
 }
 
-function animateCombatBody(parts, pose, gait, stride, weapon, role) {
+function animateCombatBody(parts, pose, gait, stride, weapon, role, pelvisShift = 0) {
   animateArms(parts, pose, gait, stride, weapon, role);
   const state = pose?.state ?? WeaponState.IDLE;
   const t = smoothstep(pose?.progress ?? 0);
@@ -562,7 +598,7 @@ function animateCombatBody(parts, pose, gait, stride, weapon, role) {
   parts.upperBody.rotation.x = 0;
   parts.upperBody.rotation.y = gait * 0.035 * stride;
   parts.upperBody.rotation.z = captain ? -0.035 : 0;
-  parts.body.position.x = 0;
+  parts.body.position.x = pelvisShift;
   parts.head.position.x = 0;
 
   if (state === WeaponState.WINDUP) {
@@ -574,7 +610,7 @@ function animateCombatBody(parts, pose, gait, stride, weapon, role) {
     parts.upperBody.rotation.z += thrust
       ? side * -0.035 * t
       : side * (vertical ? -0.08 : -0.14) * t;
-    parts.body.position.x = side * (vertical ? 0.025 : 0.055) * t;
+    parts.body.position.x += side * (vertical ? 0.025 : 0.055) * t;
     parts.head.rotation.y = -parts.upperBody.rotation.y * 0.62;
   } else if (state === WeaponState.ACTIVE) {
     const thrust = weapon === 'spear' || pose?.attack?.thrust;
@@ -585,7 +621,7 @@ function animateCombatBody(parts, pose, gait, stride, weapon, role) {
     parts.upperBody.rotation.z += thrust
       ? side * -0.05
       : side * (vertical ? -0.1 + t * 0.16 : -0.14 + t * 0.25);
-    parts.body.position.x = side * (1 - t) * (vertical ? 0.03 : 0.06);
+    parts.body.position.x += side * (1 - t) * (vertical ? 0.03 : 0.06);
     parts.head.rotation.y = -parts.upperBody.rotation.y * 0.48;
   } else if (state === WeaponState.RECOVERY) {
     parts.upperBody.rotation.y += side * 0.2 * (1 - t);
@@ -594,12 +630,66 @@ function animateCombatBody(parts, pose, gait, stride, weapon, role) {
   } else if (state === WeaponState.BLOCKING) {
     parts.upperBody.rotation.y += captain ? -0.18 : -0.1;
     parts.upperBody.rotation.z += captain ? -0.08 : -0.035;
-    parts.body.position.x = captain ? -0.04 : -0.02;
+    parts.body.position.x += captain ? -0.04 : -0.02;
     parts.head.rotation.y = captain ? 0.12 : 0.07;
   } else if (captain) {
     parts.upperBody.rotation.y -= 0.11;
-    parts.body.position.x = -0.025;
+    parts.body.position.x -= 0.025;
     parts.head.rotation.y = 0.09 - gait * 0.02 * stride;
+  }
+}
+
+function animateShieldMount(parts, pose, role) {
+  const mount = parts.shieldMount;
+  if (!mount) return;
+  const state = pose?.state ?? WeaponState.IDLE;
+  const t = smoothstep(pose?.progress ?? 0);
+  const captain = role === SoldierRole.CAPTAIN;
+  const side = pose?.attack?.arc?.[0] < 0 ? -1 : 1;
+  const thrust = pose?.attack?.thrust;
+  const vertical = pose?.attack?.vertical;
+
+  mount.position.set(
+    captain ? -0.035 : -0.02,
+    captain ? -0.105 : -0.125,
+    captain ? 0.145 : 0.125,
+  );
+  mount.rotation.set(
+    captain ? -0.02 : -0.08,
+    captain ? 0.12 : 0.055,
+    captain ? -0.075 : -0.025,
+  );
+
+  if (state === WeaponState.BLOCKING) {
+    mount.position.x -= captain ? 0.055 : 0.04;
+    mount.position.y += captain ? 0.045 : 0.025;
+    mount.position.z += captain ? 0.11 : 0.095;
+    mount.rotation.x += 0.2;
+    mount.rotation.y += captain ? 0.18 : 0.13;
+    mount.rotation.z -= captain ? 0.14 : 0.09;
+  } else if (state === WeaponState.WINDUP) {
+    const clearance = vertical ? 0.075 : thrust ? 0.04 : 0.095;
+    mount.position.x -= clearance * t;
+    mount.position.z -= (thrust ? 0.025 : 0.055) * t;
+    mount.rotation.y += side * (vertical ? 0.08 : 0.18) * t;
+    mount.rotation.z -= side * (vertical ? 0.06 : 0.13) * t;
+  } else if (state === WeaponState.ACTIVE) {
+    const clearance = vertical ? 0.085 : thrust ? 0.055 : 0.12;
+    mount.position.x -= clearance * (0.65 + t * 0.35);
+    mount.position.y += (vertical ? 0.045 : 0.015) * (1 - t * 0.35);
+    mount.position.z -= (thrust ? 0.01 : 0.07) * (1 - t * 0.45);
+    mount.rotation.y += side * (vertical ? 0.1 : 0.22) * (1 - t * 0.25);
+    mount.rotation.z -= side * (vertical ? 0.08 : 0.16) * (1 - t * 0.3);
+  } else if (state === WeaponState.RECOVERY) {
+    const recovery = 1 - t;
+    mount.position.x -= (captain ? 0.075 : 0.06) * recovery;
+    mount.position.z -= 0.035 * recovery;
+    mount.rotation.y += side * 0.12 * recovery;
+    mount.rotation.z -= side * 0.09 * recovery;
+  } else if (captain) {
+    mount.position.x -= 0.025;
+    mount.position.z += 0.025;
+    mount.rotation.y += 0.08;
   }
 }
 
@@ -666,9 +756,173 @@ function animateArms(parts, pose, gait, stride, weapon, role) {
   }
 }
 
+function updateLocomotion(actor, dt, requestedSpeed) {
+  _locomotionDelta.copy(actor.object3d.position).sub(actor._lastLocomotionPosition);
+  _locomotionDelta.y = 0;
+  actor._lastLocomotionPosition.copy(actor.object3d.position);
+
+  const rawDistance = _locomotionDelta.length();
+  const distance = rawDistance > 1.25 ? 0 : rawDistance;
+  const direction = distance > 1e-6
+    ? Math.sign(_locomotionDelta.dot(actor.forward)) || 1
+    : 0;
+  const measuredSpeed = dt > 1e-6 ? distance / dt : 0;
+  const strideLength = 1.34;
+  if (distance > 0) {
+    actor._stridePhase = wrapAngle(
+      actor._stridePhase + direction * (distance / strideLength) * Math.PI * 2,
+    );
+  }
+
+  // Requested speed only widens the response once real displacement exists;
+  // a stationary actor never "walks in place" because a velocity was stale.
+  const effectiveSpeed = distance > 0
+    ? Math.max(measuredSpeed, Math.min(Math.max(0, requestedSpeed), measuredSpeed * 1.35))
+    : 0;
+  const targetWeight = smoothstep(effectiveSpeed / 1.15);
+  const response = targetWeight > actor._locomotionWeight ? 14 : 9;
+  const blend = dt > 0 ? 1 - Math.exp(-dt * response) : 0;
+  actor._locomotionWeight += (targetWeight - actor._locomotionWeight) * blend;
+  if (targetWeight === 0 && actor._locomotionWeight < 0.001) actor._locomotionWeight = 0;
+
+}
+
+function sampleLegGait(phase) {
+  const cycle = wrapAngle(phase) / (Math.PI * 2);
+  const stanceEnd = 0.62;
+  if (cycle < stanceEnd) {
+    const t = smoothstep(cycle / stanceEnd);
+    return {
+      swing: lerp(0.38, -0.34, t),
+      lift: 0,
+      support: Math.sin(Math.PI * Math.min(1, cycle / stanceEnd)),
+    };
+  }
+  const t = smoothstep((cycle - stanceEnd) / (1 - stanceEnd));
+  return {
+    swing: lerp(-0.34, 0.38, t),
+    lift: Math.sin(Math.PI * t),
+    support: 0,
+  };
+}
+
+function createReactionState(actor, result = {}, impact = {}) {
+  const outcome = result.outcome ?? 'hit';
+  const hitZone = result.hitZone ?? impact.hitZone ?? 'torso';
+  const severity = clamp(
+    result.severity ?? result.intensity ?? impact.severity ?? impact.intensity ?? 0.45,
+    0.08,
+    1,
+  );
+  const direction = result.direction ?? impact.direction;
+  let worldX = direction?.x ?? direction?.[0] ?? 0;
+  let worldZ = direction?.z ?? direction?.[2] ?? -1;
+  const length = Math.hypot(worldX, worldZ);
+  if (length > 1e-5) {
+    worldX /= length;
+    worldZ /= length;
+  } else {
+    worldX = 0;
+    worldZ = -1;
+  }
+  const localX = worldX * actor.forward.z - worldZ * actor.forward.x;
+  const localZ = worldX * actor.forward.x + worldZ * actor.forward.z;
+
+  let kind = hitZone === 'head' ? 'head' : hitZone === 'legs' ? 'leg' : 'body';
+  if (outcome === 'blocked') kind = 'block';
+  else if (outcome === 'parried') kind = 'parry';
+  else if (outcome === 'stagger' || outcome === 'guard-broken') kind = 'stagger';
+
+  const duration = kind === 'parry'
+    ? 0.3
+    : kind === 'block' ? 0.38
+      : kind === 'stagger' ? 0.72 + severity * 0.2
+        : kind === 'head' ? 0.58
+          : kind === 'leg' ? 0.64 : 0.48;
+  return {
+    kind,
+    outcome,
+    hitZone,
+    severity,
+    localX,
+    localZ,
+    elapsed: 0,
+    duration,
+    weight: 1,
+  };
+}
+
+function applyReactionPose(parts, reaction) {
+  if (!reaction) return;
+  const amount = reaction.severity * reaction.weight;
+  const side = reaction.localX;
+  const push = reaction.localZ;
+
+  if (reaction.kind === 'block') {
+    const force = 0.12 + amount * 0.22;
+    parts.upperBody.rotation.x += push * force;
+    parts.upperBody.rotation.y += side * force * 0.65;
+    parts.upperBody.rotation.z -= side * force * 0.5;
+    parts.leftArm.rotation.x -= force * 0.72;
+    parts.leftForearm.rotation.x -= force * 0.48;
+    parts.shieldMount.rotation.x += force * 0.9;
+    parts.shieldMount.position.z -= force * 0.12;
+  } else if (reaction.kind === 'parry') {
+    const snap = (0.16 + amount * 0.2) * (0.65 + reaction.weight * 0.35);
+    parts.upperBody.rotation.y -= (side || 0.65) * snap;
+    parts.upperBody.rotation.z += (side || 0.65) * snap * 0.42;
+    parts.rightArm.rotation.y += (side || 1) * snap * 1.15;
+    parts.rightForearm.rotation.z -= (side || 1) * snap * 0.72;
+    parts.head.rotation.y += (side || 0.65) * snap * 0.38;
+  } else if (reaction.kind === 'stagger') {
+    const force = 0.24 + amount * 0.44;
+    parts.upperBody.rotation.x += push * force;
+    parts.upperBody.rotation.y += side * force * 0.52;
+    parts.upperBody.rotation.z -= side * force * 0.78;
+    parts.body.position.x += side * force * 0.11;
+    parts.body.position.y -= force * 0.08;
+    parts.leftLeg.rotation.x += 0.13 * reaction.weight;
+    parts.rightLeg.rotation.x -= 0.16 * reaction.weight;
+    parts.head.rotation.x -= push * force * 0.35;
+  } else if (reaction.kind === 'head') {
+    const force = 0.2 + amount * 0.42;
+    parts.head.rotation.x += push * force;
+    parts.head.rotation.y -= side * force * 0.42;
+    parts.head.rotation.z -= (side || 0.45) * force * 0.82;
+    parts.upperBody.rotation.x += push * force * 0.28;
+    parts.upperBody.rotation.z -= side * force * 0.24;
+  } else if (reaction.kind === 'leg') {
+    const force = 0.14 + amount * 0.3;
+    const hitLeft = side <= 0;
+    const hitLeg = hitLeft ? parts.leftLeg : parts.rightLeg;
+    hitLeg.rotation.x += force * 0.9;
+    hitLeg.rotation.z += (hitLeft ? -1 : 1) * force * 0.48;
+    parts.body.position.y -= force * 0.2;
+    parts.body.position.x += (hitLeft ? 1 : -1) * force * 0.1;
+    parts.upperBody.rotation.z += (hitLeft ? 1 : -1) * force * 0.42;
+  } else {
+    const force = 0.16 + amount * 0.34;
+    parts.upperBody.rotation.x += push * force;
+    parts.upperBody.rotation.y += side * force * 0.38;
+    parts.upperBody.rotation.z -= side * force * 0.7;
+    parts.body.position.x += side * force * 0.07;
+    parts.head.rotation.x -= push * force * 0.18;
+  }
+}
+
+function advanceReaction(actor, dt) {
+  const reaction = actor._reaction;
+  if (!reaction) return;
+  reaction.elapsed += Math.max(0, dt);
+  const progress = clamp(reaction.elapsed / reaction.duration, 0, 1);
+  reaction.weight = 1 - smoothstep(progress);
+  if (progress >= 1) actor._reaction = null;
+}
+
 function animateDeathCollapse(object3d, parts, variant, deathTime) {
   const t = smoothstep(Math.min(1, deathTime / 0.92));
   const settle = smoothstep(Math.max(0, Math.min(1, (deathTime - 0.32) / 0.68)));
+  const displacementT = smoothstep(Math.max(0, Math.min(1, (deathTime - 0.06) / 0.86)));
   parts.upperBody.rotation.set(0, 0, 0);
 
   if (variant === 0) {
@@ -697,22 +951,32 @@ function animateDeathCollapse(object3d, parts, variant, deathTime) {
   parts.head.rotation.x = variant === 1 ? -0.16 * settle : 0.2 * settle;
   parts.head.rotation.y = (variant - 1) * 0.26 * settle;
   object3d.rotation.z = variant === 1 ? 1.02 * t : -1.02 * t;
-  alignCollapseToGround(object3d, parts.collapseRoot, t);
+  const displacement = DEATH_DISPLACEMENTS[variant] ?? DEATH_DISPLACEMENTS[0];
+  _collapseDisplacement.set(
+    displacement[0] * displacementT * object3d.scale.x,
+    0,
+    displacement[1] * displacementT * object3d.scale.z,
+  );
+  _collapseDisplacement.applyAxisAngle(_worldUp, object3d.rotation.y);
+  alignCollapseToGround(object3d, parts.collapseRoot, _collapseDisplacement);
 }
 
-function alignCollapseToGround(object3d, collapseRoot, amount) {
+function alignCollapseToGround(object3d, collapseRoot, displacement) {
   _collapseAnchor.copy(object3d.position);
   object3d.position.set(0, 0, 0);
-  collapseRoot.position.set(0, 0, 0);
+  _collapseQuaternion.copy(object3d.quaternion).invert();
+  collapseRoot.position.copy(displacement)
+    .applyQuaternion(_collapseQuaternion)
+    .divide(object3d.scale);
   object3d.updateWorldMatrix(true, true);
   _collapseBounds.setFromObject(collapseRoot);
   const allowedSink = 0.065 * object3d.scale.y;
   const lift = -allowedSink - _collapseBounds.min.y;
   if (lift > 0) {
-    _collapseLift.set(0, lift * amount, 0);
-    _collapseLift.applyQuaternion(_collapseQuaternion.copy(object3d.quaternion).invert());
+    _collapseLift.set(0, lift, 0);
+    _collapseLift.applyQuaternion(_collapseQuaternion);
     _collapseLift.divide(object3d.scale);
-    collapseRoot.position.copy(_collapseLift);
+    collapseRoot.position.add(_collapseLift);
   }
   object3d.position.copy(_collapseAnchor);
   object3d.updateWorldMatrix(true, true);
@@ -721,6 +985,19 @@ function alignCollapseToGround(object3d, collapseRoot, amount) {
 function smoothstep(value) {
   const t = Math.max(0, Math.min(1, value));
   return t * t * (3 - 2 * t);
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function lerp(start, end, amount) {
+  return start + (end - start) * amount;
+}
+
+function wrapAngle(value) {
+  const tau = Math.PI * 2;
+  return ((value % tau) + tau) % tau;
 }
 
 function hashString(value) {
@@ -736,3 +1013,11 @@ const _collapseBounds = new Box3();
 const _collapseAnchor = new Vector3();
 const _collapseLift = new Vector3();
 const _collapseQuaternion = new Quaternion();
+const _collapseDisplacement = new Vector3();
+const _locomotionDelta = new Vector3();
+const _worldUp = new Vector3(0, 1, 0);
+const DEATH_DISPLACEMENTS = Object.freeze([
+  Object.freeze([-0.28, 0.08]),
+  Object.freeze([0.07, 0.34]),
+  Object.freeze([0.2, -0.27]),
+]);

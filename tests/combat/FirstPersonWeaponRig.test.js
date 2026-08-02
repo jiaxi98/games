@@ -3,6 +3,7 @@ import {
   Box3,
   BoxGeometry,
   CylinderGeometry,
+  Quaternion,
   Vector3,
 } from 'three';
 import { createFirstPersonWeaponRig } from '../../src/combat/FirstPersonWeaponRig.js';
@@ -20,6 +21,8 @@ describe('FirstPersonWeaponRig', () => {
     expect(rig.object3d.getObjectByName('Crossguard')).toBeTruthy();
     expect(rig.object3d.getObjectByName('RightArm:Vambrace')).toBeTruthy();
     expect(rig.object3d.getObjectByName('LeftArm:Cuff')).toBeTruthy();
+    expect(weaponRoot.getObjectByName('PrimaryGripAnchor')?.userData.gripRole).toBe('primary');
+    expect(weaponRoot.getObjectByName('SecondaryGripAnchor')?.userData.gripRole).toBe('secondary');
 
     const oversizedFlatMeshes = [];
     rig.object3d.traverse((object) => {
@@ -75,6 +78,8 @@ describe('FirstPersonWeaponRig', () => {
     expect(rig.object3d.getObjectByName('SpearSocket')).toBeTruthy();
     expect(rig.object3d.getObjectByName('SpearHead')).toBeTruthy();
     expect(rig.object3d.getObjectByName('SwordBlade')).toBeFalsy();
+    expect(rig.object3d.getObjectByName('PrimaryGripAnchor')).toBeTruthy();
+    expect(rig.object3d.getObjectByName('SecondaryGripAnchor')).toBeTruthy();
 
     rig.dispose();
   });
@@ -110,23 +115,85 @@ describe('FirstPersonWeaponRig', () => {
     rig.dispose();
   });
 
-  it('keeps hands close to the grip while moving attacks away from center', () => {
+  it('keeps hands constrained to named grip anchors across weapon states and attack families', () => {
+    const attacks = [
+      { arc: [-1.05, 0.62] },
+      { arc: [0.96, -0.68] },
+      { vertical: true, arc: [0.1, -0.1] },
+      { thrust: true, arc: [0, 0] },
+    ];
+    const states = [
+      WeaponState.IDLE,
+      WeaponState.BLOCKING,
+      WeaponState.STAGGERED,
+      WeaponState.WINDUP,
+      WeaponState.ACTIVE,
+      WeaponState.RECOVERY,
+    ];
+    const progressSamples = [0, 0.15, 0.35, 0.5, 0.7, 0.85, 1];
+
+    for (const weapon of ['longsword', 'spear']) {
+      const rig = createFirstPersonWeaponRig({ weapon });
+      for (const attack of attacks) {
+        for (const state of states) {
+          for (const progress of progressSamples) {
+            rig.update(0, { state, progress, attack });
+            const errors = rig.getGripErrors();
+            expect(errors.primary, `${weapon} primary ${state}@${progress}`).toBeLessThan(0.015);
+            expect(errors.secondary, `${weapon} secondary ${state}@${progress}`).toBeLessThan(0.015);
+          }
+        }
+      }
+      rig.dispose();
+    }
+  });
+
+  it('keeps attack pose curves continuous at phase boundaries', () => {
+    const attacks = [
+      { arc: [-1.05, 0.62] },
+      { arc: [0.96, -0.68] },
+      { vertical: true, arc: [0.1, -0.1] },
+      { thrust: true, arc: [0, 0] },
+    ];
+    const transitions = [
+      [
+        { state: WeaponState.WINDUP, progress: 0.999 },
+        { state: WeaponState.ACTIVE, progress: 0 },
+      ],
+      [
+        { state: WeaponState.ACTIVE, progress: 0.999 },
+        { state: WeaponState.RECOVERY, progress: 0 },
+      ],
+      [
+        { state: WeaponState.RECOVERY, progress: 0.999 },
+        { state: WeaponState.IDLE, progress: 0 },
+      ],
+    ];
+
+    for (const attack of attacks) {
+      const rig = createFirstPersonWeaponRig();
+      for (const [before, after] of transitions) {
+        rig.update(0, { ...before, attack });
+        const first = rig.getPoseSample();
+        rig.update(0, { ...after, attack });
+        const second = rig.getPoseSample();
+
+        expect(distance(first.weaponPosition, second.weaponPosition)).toBeLessThan(0.01);
+        expect(quaternionDistance(first.weaponQuaternion, second.weaponQuaternion)).toBeLessThan(0.02);
+        expect(distance(first.primaryGrip, second.primaryGrip)).toBeLessThan(0.015);
+        expect(distance(first.secondaryGrip, second.secondaryGrip)).toBeLessThan(0.015);
+      }
+      rig.dispose();
+    }
+  });
+
+  it('moves attacks away from center while retaining grip constraints', () => {
     const rig = createFirstPersonWeaponRig();
     const weaponRoot = rig.object3d.getObjectByName('WeaponRoot');
-    const grip = rig.object3d.getObjectByName('SwordGrip');
-    const rightHand = rig.object3d.getObjectByName('RightArm:Hand');
-    const leftHand = rig.object3d.getObjectByName('LeftArm:Hand');
-    const world = new Vector3();
-    const right = new Vector3();
-    const left = new Vector3();
 
     rig.update(0, { state: WeaponState.IDLE, progress: 0 });
-    rig.object3d.updateMatrixWorld(true);
-    grip.getWorldPosition(world);
-    rightHand.getWorldPosition(right);
-    leftHand.getWorldPosition(left);
-    expect(right.distanceTo(world)).toBeLessThan(0.32);
-    expect(left.distanceTo(world)).toBeLessThan(0.4);
+    expect(rig.getGripErrors().primary).toBeLessThan(0.015);
+    expect(rig.getGripErrors().secondary).toBeLessThan(0.015);
 
     rig.update(0, {
       state: WeaponState.WINDUP,
@@ -143,3 +210,13 @@ describe('FirstPersonWeaponRig', () => {
     rig.dispose();
   });
 });
+
+function distance(a, b) {
+  return new Vector3(...a).distanceTo(new Vector3(...b));
+}
+
+function quaternionDistance(a, b) {
+  const from = new Quaternion(...a);
+  const to = new Quaternion(...b);
+  return from.angleTo(to);
+}
