@@ -67,6 +67,7 @@ export class FirstPersonController {
     this.evadeRemaining = 0;
     this.evadeCooldownRemaining = 0;
     this.evadeDirection = new Vector3();
+    this.evadeStartPosition = new Vector3();
     this.#syncCamera(0, 1);
   }
 
@@ -128,6 +129,12 @@ export class FirstPersonController {
         .normalize();
       this.evadeRemaining = this.config.evadeDuration;
       this.evadeCooldownRemaining = this.config.evadeCooldown;
+      this.evadeStartPosition.copy(this.position);
+      context.events?.emit?.('player:evade', {
+        phase: 'start',
+        position: this.position.clone(),
+        direction: this.evadeDirection.clone(),
+      });
     }
     const wantsMovement = axes.x !== 0 || axes.y !== 0;
     const wantsSprint = this.input.isDown('sprint') && axes.y > 0 && !this.crouching;
@@ -190,6 +197,14 @@ export class FirstPersonController {
     if (result.hitCeiling && this.velocity.y > 0) this.velocity.y = 0;
     if (result.blockedX) this.velocity.x = 0;
     if (result.blockedZ) this.velocity.z = 0;
+    if (this.evadeRemaining <= 0 && this.evadeStartPosition.lengthSq() > 0) {
+      context.events?.emit?.('player:evade', {
+        phase: 'complete',
+        position: this.position.clone(),
+        displacement: this.position.distanceTo(this.evadeStartPosition),
+      });
+      this.evadeStartPosition.set(0, 0, 0);
+    }
 
     if (this.position.y < -100) this.teleport(new Vector3(0, 2, 8));
   }

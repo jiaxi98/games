@@ -626,6 +626,37 @@ export function createAudioSystem(options = {}) {
       case 'damage':
         damage(detail);
         break;
+      case 'player:evade':
+        if (detail.phase === 'start') {
+          playNoiseBurst({
+            frequency: 460,
+            q: 0.55,
+            playbackRate: 1.25,
+            volume: 0.09,
+            duration: 0.08,
+            release: 0.09,
+            destination: nodes?.buses.effects,
+          });
+        }
+        break;
+      case 'player:defense':
+        impact({
+          material: 'metal',
+          outcome: detail.outcome,
+          severity: detail.outcome === 'parried' ? 0.9 : 0.6,
+        });
+        break;
+      case 'player:second-wind':
+        playTone({
+          frequency: 98,
+          endFrequency: 164,
+          type: 'triangle',
+          volume: 0.16,
+          duration: 0.22,
+          release: 0.3,
+          destination: nodes?.buses.ui,
+        });
+        break;
       case 'combat:kill':
       case 'kill':
         kill(detail);

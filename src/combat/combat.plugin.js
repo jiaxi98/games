@@ -134,6 +134,19 @@ export function install(context) {
       recoil: 1.25,
     });
     events.emit('player:impact', event);
+    if (['blocked', 'parried', 'guard-broken'].includes(damagePayload.outcome)) {
+      events.emit('player:defense', {
+        outcome: damagePayload.outcome,
+        staminaDamage: event.result?.staminaDamage ?? 0,
+        attacker: event.impact?.source,
+      });
+      if (damagePayload.outcome === 'parried') {
+        events.emit('tutorial', {
+          cue: { keys: ['LMB'], text: 'RIPOSTE — strike while he is open' },
+          duration: 1.15,
+        });
+      }
+    }
     events.emit('player:damage', damagePayload);
     events.emit('player:health', {
       value: combatant.health,
@@ -161,6 +174,14 @@ export function install(context) {
         speaker: 'Martin',
         text: 'Not here. One last push.',
         duration: 2.1,
+      });
+      events.emit('tutorial', {
+        cue: { keys: ['ALT', 'RMB'], text: 'Backstep. Read the next attack, then guard.' },
+        duration: 3.2,
+      });
+      events.emit('player:second-wind', {
+        health: combatant.health,
+        maxHealth: combatant.maxHealth,
       });
     }
   };

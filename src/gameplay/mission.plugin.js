@@ -162,6 +162,16 @@ function createMissionSystem(context) {
   let lastFocusRefreshAt = -Infinity;
   let captainHUDVisible = false;
   let captainPhase = null;
+  const combatStats = {
+    damageTaken: 0,
+    blocks: 0,
+    parries: 0,
+    guardBreaks: 0,
+    evades: 0,
+    secondWindUsed: false,
+    captainStartedAt: null,
+    captainDuration: 0,
+  };
 
   const setObjective = (stage, { phase, announcement } = {}) => {
     const objective = OBJECTIVES[stage];
@@ -263,6 +273,7 @@ function createMissionSystem(context) {
         duration: 8,
       });
     } else if (transition.current === MissionStage.CAPTAIN) {
+      combatStats.captainStartedAt = elapsed;
       if (captain?.combatant) {
         if (!captain.combatant.alive) captain.combatant.reset();
         captain.combatant.health = captain.combatant.maxHealth;
@@ -294,6 +305,9 @@ function createMissionSystem(context) {
         text: 'His guard is falling back to the bridge. Break the perimeter!',
       });
     } else if (transition.current === MissionStage.VICTORY) {
+      if (combatStats.captainStartedAt !== null) {
+        combatStats.captainDuration = Math.max(0, elapsed - combatStats.captainStartedAt);
+      }
       setObjective(MissionStage.VICTORY, {
         phase: PHASE_BY_STAGE[MissionStage.VICTORY],
         announcement: {
@@ -324,9 +338,10 @@ function createMissionSystem(context) {
       events.emit('victory', {
         stats: [
           { label: 'Enemies felled', value: mission.kills },
-          { label: 'Commands given', value: (
-            mission.rallyCommands + mission.braceCommands + mission.advanceCommands
-          ) },
+          { label: 'Captain duel', value: `${combatStats.captainDuration.toFixed(1)}s` },
+          { label: 'Defences', value: combatStats.blocks + combatStats.parries },
+          { label: 'Damage taken', value: Math.round(combatStats.damageTaken) },
+          { label: 'Second wind', value: combatStats.secondWindUsed ? 'Used' : 'Not used' },
         ],
       });
       input.exitPointerLock();
@@ -356,6 +371,7 @@ function createMissionSystem(context) {
       enemySquad,
       captain,
       encounters: routeEncounters.director.snapshot(),
+      combatStats: { ...combatStats },
     }),
     restart: () => events.emit('mission:restart'),
     // Deterministic harness hooks for browser-level mission verification.
@@ -422,6 +438,29 @@ function createMissionSystem(context) {
   };
 
   disposers.push(events.on('combat:kill', handleKill));
+  disposers.push(events.on('player:damage', ({ amount = 0, outcome } = {}) => {
+    if (!['blocked', 'parried', 'avoided'].includes(outcome)) {
+      combatStats.damageTaken += Math.max(0, Number(amount) || 0);
+    }
+  }));
+  disposers.push(events.on('player:defense', ({ outcome } = {}) => {
+    if (outcome === 'parried') combatStats.parries += 1;
+    else if (outcome === 'blocked') combatStats.blocks += 1;
+    else if (outcome === 'guard-broken') combatStats.guardBreaks += 1;
+  }));
+  disposers.push(events.on('player:evade', ({ phase } = {}) => {
+    if (phase === 'complete') combatStats.evades += 1;
+  }));
+  disposers.push(events.on('player:second-wind', () => {
+    combatStats.secondWindUsed = true;
+  }));
+  disposers.push(events.on('battlefield:stage-activated', ({ id } = {}) => {
+    if (id !== 'captain-encounter') return;
+    events.emit('tutorial', {
+      cue: { keys: ['RMB', 'ALT'], text: 'Guard as his weapon commits. Backstep to make space.' },
+      duration: 4.2,
+    });
+  }));
   disposers.push(events.on('player:death', () => {
     if (pendingDeath) return;
     pendingDeath = true;
