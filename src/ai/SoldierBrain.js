@@ -18,7 +18,7 @@ export class SoldierBrain {
     terrainHeight = () => 0,
     rng = Math.random,
     attackCoordinator = null,
-    attackTelegraphScale = 1.45,
+    attackTelegraphScale = 1.75,
     bodyRadius = null,
   }) {
     this.actor = actor;
@@ -223,7 +223,8 @@ export class SoldierBrain {
   _applySeparation(dt, context) {
     if ((context.lod ?? 0) !== 0 || !this.actor.combatant.alive) return;
     const planted = this._isPlantedAttack();
-    const radius = this.bodyRadius + 0.62;
+    const playerTarget = this.target?.role === 'player' || this.target?.id === 'player';
+    const radius = this.bodyRadius + (playerTarget ? 1.35 : 0.72);
     const neighbors = this.queryActors(
       this.actor.object3d.position,
       radius,
@@ -237,8 +238,10 @@ export class SoldierBrain {
       if (other === this.actor || !other?.combatant?.alive) continue;
       const otherPosition = other.object3d?.position;
       if (!otherPosition) continue;
-      const otherRadius = other.brain?.bodyRadius ?? 0.42;
-      const minDistance = this.bodyRadius + otherRadius;
+      const otherRadius = other.role === 'player'
+        ? 0.78
+        : other.brain?.bodyRadius ?? 0.42;
+      const minDistance = this.bodyRadius + otherRadius + (other.role === 'player' ? 0.42 : 0.08);
       let dx = position.x - otherPosition.x;
       let dz = position.z - otherPosition.z;
       const distanceSq = dx * dx + dz * dz;
@@ -259,7 +262,7 @@ export class SoldierBrain {
       overlaps += 1;
     }
     if (overlaps === 0) return;
-    const strength = planted ? 0 : Math.min(5.5, 2.8 + overlaps * 0.55);
+    const strength = planted ? 0 : Math.min(8.5, 4.2 + overlaps * 0.8);
     this.actor.velocity.x += pushX * strength * Math.min(1, dt * 12);
     this.actor.velocity.z += pushZ * strength * Math.min(1, dt * 12);
   }

@@ -6,6 +6,17 @@ function actor(id) {
 }
 
 describe('AttackCoordinator', () => {
+  it('supports a single committed attacker around a vulnerable player target', () => {
+    const coordinator = new AttackCoordinator({ maxAttackersPerTarget: 1 });
+    const target = actor('player');
+    const first = actor('first');
+    const second = actor('second');
+
+    expect(coordinator.reserve(first, target)).toBe(true);
+    expect(coordinator.reserve(second, target)).toBe(false);
+    expect(coordinator.countFor(target)).toBe(1);
+  });
+
   it('bounds attackers per target while preserving an existing commitment', () => {
     const coordinator = new AttackCoordinator({ maxAttackersPerTarget: 2 });
     const target = actor('target');

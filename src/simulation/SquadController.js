@@ -174,6 +174,11 @@ export class SquadController extends EventDispatcher {
         senseRange: this.morale.state === CohesionState.ORDERED ? 11 : 16,
       });
     });
+    for (const actor of this.actors) {
+      if (actor.combatant.alive || this._deadIds.has(`${actor.id}:settled`)) continue;
+      actor.update(dt, { moraleState: this.morale.state });
+      if ((actor._deathTime ?? 0) >= 1.1) this._deadIds.add(`${actor.id}:settled`);
+    }
     return this.morale.state;
   }
 

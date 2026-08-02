@@ -12,6 +12,7 @@ export function install(context) {
     player,
     nearDistance: 34,
     midDistance: 86,
+    maxAttackersPerTarget: 1,
     terrainHeight: (x, z) => context.physics.groundHeightAt(x, z),
   });
   app.battlefieldSimulation = simulation;

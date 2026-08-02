@@ -21,6 +21,29 @@ export function install(context) {
     poise: 42,
     positionProvider: () => player.position,
   });
+  let damageGraceRemaining = 0;
+  const originalReceiveImpact = combatant.receiveImpact.bind(combatant);
+  combatant.receiveImpact = (impact) => {
+    if (damageGraceRemaining > 0) {
+      return {
+        outcome: 'avoided',
+        damage: 0,
+        killed: false,
+        staggered: false,
+        point: impact?.point,
+        position: impact?.point,
+        direction: impact?.direction,
+        hitZone: impact?.hitZone ?? 'torso',
+        surface: impact?.surface ?? 'armor',
+        material: impact?.material ?? 'armor',
+        severity: 0,
+        intensity: 0,
+      };
+    }
+    const result = originalReceiveImpact(impact);
+    if ((result.damage ?? 0) > 0 && !result.killed) damageGraceRemaining = 0.52;
+    return result;
+  };
   combatant.actor = player;
   player.combatant = combatant;
   player.factionId = combatant.factionId;
@@ -140,6 +163,7 @@ export function install(context) {
 
   return {
     update(dt) {
+      damageGraceRemaining = Math.max(0, damageGraceRemaining - dt);
       if (input.wasPressed('attack')) {
         if (input.isDown('sprint')) controller.heavyAttack();
         else controller.lightAttack();
@@ -160,6 +184,7 @@ export function install(context) {
       rig.dispose();
       delete player.combatant;
       delete player.factionId;
+      combatant.receiveImpact = originalReceiveImpact;
       if (app.playerCombat === api) delete app.playerCombat;
     },
   };
