@@ -159,9 +159,15 @@ export class SoldierBrain {
     }
 
     actor.velocity.multiplyScalar(Math.max(0, 1 - dt * 10));
-    const targetAttacking =
-      target.brain?.combat?.state === WeaponState.WINDUP ||
-      target.brain?.combat?.state === WeaponState.ACTIVE;
+    const targetCombat = target.brain?.combat?.getSnapshot?.()
+      ?? target.brain?.combat
+      ?? target.combatState;
+    const targetAttacking = (
+      targetCombat?.state === WeaponState.WINDUP
+      || targetCombat?.state === WeaponState.ACTIVE
+      || targetCombat?.windingUp === true
+      || targetCombat?.attacking === true
+    );
     if (targetAttacking && this.combat.state === WeaponState.IDLE && this.rng() > this.aggression) {
       this.state = BrainState.GUARD;
       this.combat.beginBlock();
@@ -288,7 +294,10 @@ export class SoldierBrain {
     attackDelay,
   } = {}) {
     if (Number.isFinite(aggression)) this.aggression = Math.max(0, Math.min(1, aggression));
-    if (Number.isFinite(attackDelay)) this.attackDelay = Math.max(this.attackDelay, attackDelay);
+    if (Number.isFinite(attackDelay)) {
+      const delay = Math.max(0, attackDelay);
+      this.attackDelay = Math.min(Math.max(this.attackDelay, delay * 0.75), delay * 1.15);
+    }
     if (Number.isFinite(damageScale) || Number.isFinite(telegraphScale)) {
       this.combat.weapon = createAiWeaponDefinition(
         this.actor.weapon,
