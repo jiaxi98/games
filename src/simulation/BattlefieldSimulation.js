@@ -307,6 +307,17 @@ export class BattlefieldSimulation extends EventDispatcher {
     this.attackCoordinator.prune();
     this._spatialItems.length = 0;
     for (const actor of this.actors) {
+      const target = actor.brain?.target;
+      if (
+        actor.combatant.alive
+        && target
+        && (
+          !target.combatant?.alive
+          || !this.attackCoordinator.has(actor, target)
+        )
+      ) {
+        actor.brain.target = null;
+      }
       if (actor.combatant.alive && actor.squad?.active !== false) {
         this._spatialItems.push(actor);
       }
@@ -373,6 +384,118 @@ export class BattlefieldSimulation extends EventDispatcher {
         .filter((squad) => squad.active)
         .map((squad) => squad.snapshot()),
       objectives: [...this._reversal.objectives],
+    };
+  }
+
+  getTelemetrySnapshot(cameraPosition = null) {
+    const lod = {
+      near: 0,
+      mid: 0,
+      far: 0,
+      hidden: 0,
+      alive: 0,
+      dead: 0,
+      total: this.actors.length,
+    };
+    let activeActors = 0;
+    let dormantActors = 0;
+    let targetLosses = 0;
+    let targetReservations = 0;
+    let engaged = 0;
+
+    for (const actor of this.actors) {
+      const alive = actor.combatant.alive;
+      if (alive) lod.alive += 1;
+      else lod.dead += 1;
+      if (actor.squad?.active === false) dormantActors += 1;
+      else activeActors += 1;
+      if (actor.lod === 0) lod.near += 1;
+      else if (actor.lod === 1) lod.mid += 1;
+      else if (actor.lod === 2) lod.far += 1;
+      else lod.hidden += 1;
+
+      const target = actor.brain?.target;
+      if (alive && target) {
+        engaged += 1;
+        const reserved = this.attackCoordinator.has(actor, target);
+        const validTarget = target.combatant?.alive === true;
+        if (reserved && validTarget) targetReservations += 1;
+        if (!validTarget) {
+          actor.brain.target = null;
+          this.attackCoordinator.release(actor);
+        } else if (!reserved) {
+          targetLosses += 1;
+        }
+      }
+    }
+
+    const crowdByFaction = {};
+    let crowdCount = 0;
+    let crowdCapacity = 0;
+    let crowdPeakCount = 0;
+    let crowdResizeCount = 0;
+    let crowdTruncated = false;
+    this.crowdVisuals.forEach((visual, factionId) => {
+      const snapshot = visual.getTelemetry?.() ?? {
+        count: visual.count ?? 0,
+        capacity: visual.capacity ?? 0,
+      };
+      crowdByFaction[factionId] = { ...snapshot };
+      crowdCount += snapshot.count ?? 0;
+      crowdCapacity += snapshot.capacity ?? 0;
+      crowdPeakCount += snapshot.peakCount ?? snapshot.count ?? 0;
+      crowdResizeCount += snapshot.resizeCount ?? 0;
+      crowdTruncated ||= Boolean(snapshot.truncated);
+    });
+
+    const expectedCrowdCount = this.farVisuals
+      ? this.actors.reduce((count, actor) => (
+        count + (actor.lod === 2 && actor.combatant.alive ? 1 : 0)
+      ), 0) + this.distantFormations.reduce((count, formation) => (
+        count + formation.instances.length
+      ), 0)
+      : 0;
+    const activeSquads = this.squads.filter((squad) => squad.active);
+
+    return {
+      frame: this._frame,
+      timeSeconds: this._time,
+      activeSquads: activeSquads.length,
+      dormantSquads: this.squads.length - activeSquads.length,
+      activeSquadIds: activeSquads.map((squad) => squad.id),
+      actors: {
+        active: activeActors,
+        dormant: dormantActors,
+        external: this.externalActors.length,
+        engaged,
+        targetReservations,
+        targetLosses,
+      },
+      lod,
+      crowd: {
+        count: crowdCount,
+        capacity: crowdCapacity,
+        available: crowdCapacity - crowdCount,
+        utilization: crowdCapacity > 0 ? crowdCount / crowdCapacity : 0,
+        expectedCount: expectedCrowdCount,
+        capacityShortfall: Math.max(0, expectedCrowdCount - crowdCapacity),
+        countMismatch: crowdCount !== expectedCrowdCount,
+        truncated: crowdTruncated || crowdCount > crowdCapacity,
+        peakCount: crowdPeakCount,
+        resizeCount: crowdResizeCount,
+        factions: crowdByFaction,
+      },
+      distantFormations: {
+        count: this.distantFormations.length,
+        instances: this.distantFormations.reduce((sum, formation) => (
+          sum + formation.instances.length
+        ), 0),
+      },
+      camera: cameraPosition ? {
+        x: cameraPosition.x,
+        y: cameraPosition.y,
+        z: cameraPosition.z,
+      } : null,
     };
   }
 
@@ -476,7 +599,10 @@ export class BattlefieldSimulation extends EventDispatcher {
       visual.update(this._time);
     });
     this.crowdVisuals.forEach((visual, factionId) => {
-      if (!byFaction.has(factionId)) visual.setInstances([]);
+      if (!byFaction.has(factionId)) {
+        visual.setInstances([]);
+        visual.update(this._time);
+      }
     });
   }
 

@@ -67,6 +67,8 @@ export function createCrowdVisuals({
   let currentCapacity = nextCapacity(capacity);
   let instances = [];
   let boundsDirty = true;
+  let resizeCount = 0;
+  let peakCount = 0;
 
   const dummy = new Object3D();
   const spearDirection = new Vector3();
@@ -91,10 +93,23 @@ export function createCrowdVisuals({
     get count() {
       return instances.length;
     },
+    getTelemetry() {
+      return {
+        count: instances.length,
+        capacity: currentCapacity,
+        available: currentCapacity - instances.length,
+        utilization: currentCapacity > 0 ? instances.length / currentCapacity : 0,
+        truncated: instances.length > currentCapacity,
+        peakCount,
+        resizeCount,
+        meshes: descriptors.length,
+      };
+    },
     setInstances(nextInstances) {
       const required = nextInstances?.length ?? 0;
       if (required > currentCapacity) resize(nextCapacity(required));
       instances = nextInstances ?? [];
+      peakCount = Math.max(peakCount, instances.length);
       for (const mesh of Object.values(meshes)) mesh.count = instances.length;
       boundsDirty = true;
     },
@@ -228,6 +243,7 @@ export function createCrowdVisuals({
       previous.dispose();
     }
     currentCapacity = next;
+    resizeCount += 1;
   }
 
   function updateBounds() {

@@ -111,4 +111,119 @@ describe('battlefield composition', () => {
     expect(bridge.bridgeSurfaceHeight).toBeCloseTo(3.95 * 1.28);
     expect(bridge.walkableBounds.containsPoint(new Vector2(-7, -174))).toBe(true);
   });
+
+  it('authors a clear south bridgehead arena with bounded landmarks and low center framing', () => {
+    const bridge = createStoneBridgeAndFord({
+      materials: createWorldMaterials(),
+      sampleHeight,
+      quality: 'medium',
+    });
+    const {
+      duelPoint,
+      captainFall,
+      bridgeGuardPoint,
+      southApproach,
+      standardRaise,
+      postKillRoute,
+    } = bridge.landmarks;
+
+    expect(bridge.duelArenaBounds.containsPoint(new Vector2(
+      duelPoint.x,
+      duelPoint.z,
+    ))).toBe(true);
+    expect(bridge.duelArenaBounds.containsPoint(new Vector2(
+      captainFall.x,
+      captainFall.z,
+    ))).toBe(true);
+    expect(bridge.walkableBounds.containsPoint(new Vector2(
+      standardRaise.x,
+      standardRaise.z,
+    ))).toBe(true);
+    expect(southApproach.z).toBeGreaterThan(duelPoint.z);
+    expect(postKillRoute.z).toBeLessThan(bridgeGuardPoint.z);
+
+    const centreRay = new Box3().setFromCenterAndSize(
+      new Vector3(-7, 3.1, -151),
+      new Vector3(10, 4.2, 30),
+    );
+    const blockingStone = [];
+    bridge.group.traverse((object) => {
+      if (
+        !object.isMesh
+        || !['BridgeParapet', 'BridgeApproachWall'].includes(object.name)
+      ) return;
+      const bounds = new Box3().setFromObject(object);
+      if (bounds.intersectsBox(centreRay)) blockingStone.push(bounds);
+    });
+    expect(blockingStone).toHaveLength(0);
+
+    const parapets = [];
+    bridge.group.traverse((object) => {
+      if (object.name === 'BridgeParapet') parapets.push(object);
+    });
+    const largestParapet = Math.max(...parapets.map((parapet) => (
+      new Box3().setFromObject(parapet).getSize(new Vector3()).z
+    )));
+    expect(largestParapet).toBeLessThan(22);
+    expect(bridge.group.getObjectByName('BridgeheadSmoke')?.count).toBe(5);
+    expect(bridge.group.getObjectByName('BridgeheadCaptainBanner')).toBeTruthy();
+    expect(bridge.group.getObjectByName('AshenStandardRaiseSocket')).toBeTruthy();
+  });
+
+  it('keeps the south approach, duel floor, and post-kill bridge route collision-free', () => {
+    const bridge = createStoneBridgeAndFord({
+      materials: createWorldMaterials(),
+      sampleHeight,
+    });
+    const route = [
+      bridge.landmarks.southApproach,
+      bridge.landmarks.duelPoint,
+      bridge.landmarks.bridgeGuardPoint,
+      bridge.landmarks.postKillRoute,
+      new Vector3(-7, bridge.bridgeSurfaceHeight, -174),
+    ];
+
+    for (let segment = 0; segment < route.length - 1; segment += 1) {
+      for (let step = 0; step <= 24; step += 1) {
+        const point = route[segment].clone().lerp(route[segment + 1], step / 24);
+        expect(bridge.colliders.some(
+          (collider) => horizontalCircleIntersectsBox(point, 0.38, collider),
+        )).toBe(false);
+      }
+    }
+  });
+
+  it('places the captain fall landmark beside the clear lane and outside stone blockers', () => {
+    const bridge = createStoneBridgeAndFord({
+      materials: createWorldMaterials(),
+      sampleHeight,
+    });
+    const { captainFall, duelPoint, bridgeGuardPoint } = bridge.landmarks;
+
+    expect(distanceToSegment2D(captainFall, duelPoint, bridgeGuardPoint)).toBeGreaterThan(4);
+    expect(bridge.colliders.some(
+      (collider) => horizontalCircleIntersectsBox(captainFall, 1.15, collider),
+    )).toBe(false);
+  });
 });
+
+function horizontalCircleIntersectsBox(point, radius, box) {
+  const closestX = Math.max(box.min.x, Math.min(point.x, box.max.x));
+  const closestZ = Math.max(box.min.z, Math.min(point.z, box.max.z));
+  return Math.hypot(point.x - closestX, point.z - closestZ) < radius;
+}
+
+function distanceToSegment2D(point, start, end) {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const lengthSquared = dx * dx + dz * dz;
+  const t = lengthSquared > 0
+    ? Math.max(0, Math.min(1, (
+      (point.x - start.x) * dx + (point.z - start.z) * dz
+    ) / lengthSquared))
+    : 0;
+  return Math.hypot(
+    point.x - (start.x + dx * t),
+    point.z - (start.z + dz * t),
+  );
+}

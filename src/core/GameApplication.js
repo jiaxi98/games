@@ -283,7 +283,38 @@ export class GameApplication {
           : 'AIRBORNE';
   }
 
-  getPerformanceSnapshot() {
-    return this.performance.sample(this.renderer);
+  getPerformanceSnapshot({
+    checkpoint = null,
+    stage = this.gameplay?.getState?.().stage ?? null,
+    metadata = null,
+  } = {}) {
+    return this.performance.sample(this.renderer, performance.now(), {
+      checkpoint,
+      stage,
+      metadata,
+      simulation: this.battlefieldSimulation ?? this.battlefield?.simulation,
+      world: this.world,
+      cameraPosition: this.camera.position,
+    });
+  }
+
+  startPerformanceCheckpoint(label, options = {}) {
+    return this.performance.startCheckpoint(label, {
+      ...options,
+      stage: options.stage ?? this.gameplay?.getState?.().stage ?? null,
+      timeMs: options.timeMs ?? performance.now(),
+    });
+  }
+
+  capturePerformanceCheckpoint(label = null, options = {}) {
+    if (label) this.startPerformanceCheckpoint(label, options);
+    return this.performance.captureCheckpoint(this.renderer, performance.now(), {
+      checkpoint: label,
+      stage: options.stage ?? this.gameplay?.getState?.().stage ?? null,
+      metadata: options.metadata ?? null,
+      simulation: this.battlefieldSimulation ?? this.battlefield?.simulation,
+      world: this.world,
+      cameraPosition: this.camera.position,
+    });
   }
 }

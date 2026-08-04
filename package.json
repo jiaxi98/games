@@ -10,7 +10,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "visual:smoke": "node tools/visual-smoke.mjs",
-    "playtest:e2e": "node tools/playtest-e2e.mjs"
+    "playtest:e2e": "node tools/playtest-e2e.mjs",
+    "profile:checkpoints": "node tools/profile-checkpoints.mjs",
+    "playtest:captain": "node tools/captain-strategies.mjs",
+    "ui:overflow": "node tools/ui-overflow.mjs",
+    "release:audit": "npm run build && npm test && npm run profile:checkpoints && npm run playtest:captain && npm run ui:overflow && npm run playtest:e2e"
   },
   "dependencies": {
     "three": "^0.179.1"

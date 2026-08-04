@@ -360,6 +360,7 @@ export function createWorld(scene, renderer, options = {}) {
   const bridge = createStoneBridgeAndFord({
     materials,
     sampleHeight: terrain.sampleHeight,
+    quality: config.quality,
   });
   root.add(bridge.group);
 
@@ -451,11 +452,14 @@ export function createWorld(scene, renderer, options = {}) {
     ...mill.colliders,
     ...bridge.colliders,
   ];
-  const landmarks = setLandmarkHeights(
-    LANDMARKS,
-    terrain.sampleHeight,
-    bridge.bridgeSurfaceHeight,
-  );
+  const landmarks = Object.freeze({
+    ...setLandmarkHeights(
+      LANDMARKS,
+      terrain.sampleHeight,
+      bridge.bridgeSurfaceHeight,
+    ),
+    ...bridge.landmarks,
+  });
   let elapsed = 0;
   let windStrength = 1;
   let battleIntensity = 1;
@@ -529,6 +533,8 @@ export function createWorld(scene, renderer, options = {}) {
     root,
     landmarks,
     colliders,
+    bridgeWalkableBounds: bridge.walkableBounds.clone(),
+    duelArenaBounds: bridge.duelArenaBounds.clone(),
     roadPoints: terrain.roadPoints,
     sampleHeight,
     sampleNormal: terrain.sampleNormal,

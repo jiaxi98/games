@@ -34,10 +34,33 @@ page.on('requestfailed', (request) => {
 
 const timings = {};
 const startedAt = Date.now();
+const verificationHookCalls = [];
 
 try {
   await page.goto(baseURL, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => window.MedievalRPG?.getContext?.());
+  await page.evaluate(() => {
+    const app = window.MedievalRPG.getContext().app;
+    const gameplay = app.gameplay;
+    const calls = [];
+    const verify = new Proxy(gameplay.verify ?? {}, {
+      get(target, property, receiver) {
+        const value = Reflect.get(target, property, receiver);
+        if (typeof value !== 'function') return value;
+        return (...args) => {
+          calls.push({ name: String(property), t: performance.now() });
+          return value(...args);
+        };
+      },
+    });
+    app.gameplay = new Proxy(gameplay, {
+      get(target, property, receiver) {
+        if (property === 'verify') return verify;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    window.__NATURAL_MISSION_VERIFY_CALLS__ = calls;
+  });
   await page.click('#enter-game');
   await page.waitForFunction(() => (
     window.MedievalRPG.getContext().state.value === 'playing'
@@ -91,13 +114,14 @@ try {
   timings.toBridge = await walkTo(debug.bridge, 15, 30_000);
   await page.evaluate(() => {
     const context = window.MedievalRPG.getContext();
-    const bridge = context.app.gameplay.getDebugState().landmarks.bridge;
-    const approach = bridge.clone();
+    const landmarks = context.app.gameplay.getDebugState().landmarks;
+    const interaction = landmarks.standardRaise ?? landmarks.bridge;
+    const approach = interaction.clone();
     approach.z += 7;
     approach.y = context.app.world.sampleHeight(approach.x, approach.z) + 0.04;
     context.player.teleport(approach, { yaw: 0, pitch: -0.08 });
   });
-  await face(debug.bridge);
+  await face(debug.standardRaise ?? debug.bridge);
   await page.keyboard.press('e');
   await waitForStage('won');
   await page.waitForTimeout(800);
@@ -122,12 +146,16 @@ try {
       return { x: value.x, y: value.y, z: value.z };
     }
   });
+  verificationHookCalls.push(...await page.evaluate(() => (
+    window.__NATURAL_MISSION_VERIFY_CALLS__ ?? []
+  )));
 
   const report = {
     elapsedMs: Date.now() - startedAt,
     timings,
     combat,
     final,
+    verificationHookCalls,
     runtimeIssues,
   };
   await writeFile(
@@ -141,6 +169,7 @@ try {
     || final.player.enabled !== false
     || final.title !== 'The Standard Rises'
     || combat.strikes < 1
+    || verificationHookCalls.length > 0
     || runtimeIssues.length
   ) {
     process.exitCode = 1;
@@ -324,18 +353,18 @@ async function approachCaptainEncounter() {
           y: captain.object3d.position.y + 1.25,
           z: captain.object3d.position.z,
         } : null,
-        bridge: {
-          x: debug.landmarks.bridge.x,
-          y: debug.landmarks.bridge.y,
-          z: debug.landmarks.bridge.z,
+        duelPoint: {
+          x: (debug.landmarks.duelPoint ?? debug.landmarks.bridge).x,
+          y: (debug.landmarks.duelPoint ?? debug.landmarks.bridge).y,
+          z: (debug.landmarks.duelPoint ?? debug.landmarks.bridge).z,
         },
       };
     });
     if (state.targetable && state.alive) return Date.now() - start;
     const approach = {
-      x: state.bridge.x,
-      y: state.bridge.y,
-      z: state.bridge.z + 52,
+      x: state.duelPoint.x,
+      y: state.duelPoint.y,
+      z: state.duelPoint.z + 8,
     };
     const distance = await page.evaluate(({ x, z }) => {
       const position = window.MedievalRPG.getContext().player.position;

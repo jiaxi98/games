@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   PerspectiveCamera,
   Scene,
+  Vector2,
+  Vector3,
 } from 'three';
 import { createWorld } from '../../src/world/createWorld.js';
 
@@ -120,4 +122,38 @@ describe('world-sector visibility', () => {
 
     world.dispose();
   });
+
+  it('keeps straight climax routes collision-free and all authored landmarks in bounds', () => {
+    const world = createTestWorld();
+
+    expectStraightPathClear(world, world.landmarks.spearLine, world.landmarks.duelPoint);
+    expectStraightPathClear(world, world.landmarks.duelPoint, world.landmarks.standardRaise);
+    expect(world.duelArenaBounds.containsPoint(new Vector2(
+      world.landmarks.duelPoint.x,
+      world.landmarks.duelPoint.z,
+    ))).toBe(true);
+    expect(world.duelArenaBounds.containsPoint(new Vector2(
+      world.landmarks.captainFall.x,
+      world.landmarks.captainFall.z,
+    ))).toBe(true);
+    expect(world.bridgeWalkableBounds.containsPoint(new Vector2(
+      world.landmarks.standardRaise.x,
+      world.landmarks.standardRaise.z,
+    ))).toBe(true);
+    expect(world.isBlocked(
+      world.landmarks.captainFall.clone().add(new Vector3(0, 0.9, 0)),
+      0.55,
+    )).toBe(false);
+
+    world.dispose();
+  });
 });
+
+function expectStraightPathClear(world, start, end) {
+  const point = new Vector3();
+  for (let step = 0; step <= 80; step += 1) {
+    point.lerpVectors(start, end, step / 80);
+    point.y = world.sampleHeight(point.x, point.z) + 0.9;
+    expect(world.isBlocked(point, 0.55)).toBe(false);
+  }
+}

@@ -283,10 +283,171 @@ describe('SoldierActor visuals', () => {
     const expectedQuarter = Math.PI * 0.5;
     expect(positiveAngleDelta(initialPhase, quarterPhase)).toBeCloseTo(expectedQuarter, 1);
     expect(actor._locomotionWeight).toBeGreaterThan(0.65);
+    expect(actor._animationLayers.locomotion.strideWarp).toBeGreaterThan(1.02);
+    expect(Math.abs(actor._parts.leftFoot.userData.contact.roll)).toBeGreaterThan(0.01);
 
     actor.object3d.position.z += 0.335;
     actor.update(0.1, { speed: 3.35 });
     expect(positiveAngleDelta(initialPhase, actor._stridePhase)).toBeCloseTo(Math.PI, 1);
+
+    actor.dispose();
+  });
+
+  it('articulates knees and locks a support foot while the body advances', () => {
+    const actor = createSoldierActor({
+      id: 'knee-foot-lock',
+      factionId: FactionId.VANGUARD,
+      role: SoldierRole.MAN_AT_ARMS,
+    });
+    actor._stridePhase = Math.PI * 2 * 0.08;
+    actor.object3d.position.z += 0.12;
+    actor.update(0.1, { speed: 1.2, terrainHeight: () => 0 });
+    actor.object3d.updateWorldMatrix(true, true);
+    const planted = actor._parts.leftFoot.getWorldPosition(new Vector3());
+
+    actor.object3d.position.z += 0.06;
+    actor.update(0.1, { speed: 0.6, terrainHeight: () => 0 });
+    actor.object3d.updateWorldMatrix(true, true);
+    const locked = actor._parts.leftFoot.getWorldPosition(new Vector3());
+
+    expect(actor._parts.leftKnee.name).toBe('KneePivot');
+    expect(actor._parts.rightKnee.name).toBe('KneePivot');
+    expect(actor._parts.leftFoot.userData.contact.locked).toBe(true);
+    expect(horizontalLength(locked.clone().sub(planted))).toBeLessThan(0.01);
+    expect(actor._parts.leftKnee.rotation.x).toBeLessThanOrEqual(0.08);
+
+    actor._stridePhase = Math.PI * 2 * 0.78;
+    actor.object3d.position.z += 0.08;
+    actor.update(0.1, { speed: 0.8, terrainHeight: () => 0 });
+    expect(actor._parts.leftKnee.rotation.x).toBeLessThan(-0.35);
+    expect(actor._parts.leftFoot.userData.contact.lift).toBeGreaterThan(0.4);
+
+    actor.dispose();
+  });
+
+  it('adapts torso, ankle, and leg height numerically to sloped terrain', () => {
+    const actor = createSoldierActor({
+      id: 'slope-pose',
+      factionId: FactionId.SAINT_ORENS,
+      role: SoldierRole.SPEARMAN,
+    });
+    const terrainHeight = (_x, z) => z * 0.25;
+    actor.object3d.position.set(0, terrainHeight(0, 0.2), 0.2);
+    actor._lastLocomotionPosition.set(0, 0, 0);
+    actor.update(0.1, { speed: 2, terrainHeight });
+
+    expect(actor._terrainNormal.z).toBeLessThan(-0.1);
+    expect(actor._parts.body.rotation.x).toBeGreaterThan(0.04);
+    expect(actor._parts.leftAnkle.rotation.x).toBeGreaterThan(0.1);
+    expect(actor._parts.leftLeg.position.y).not.toBeCloseTo(0.75, 2);
+
+    actor.dispose();
+  });
+
+  it('layers acceleration lean and turn-in-place over the locomotion base', () => {
+    const actor = createSoldierActor({
+      id: 'turn-lean',
+      factionId: FactionId.VANGUARD,
+      role: SoldierRole.MAN_AT_ARMS,
+    });
+    actor.object3d.position.z += 0.25;
+    actor.update(0.1, { speed: 2.5 });
+    const accelerationLean = actor._parts.upperBody.rotation.x;
+
+    actor.desiredForward.set(1, 0, 0);
+    actor.update(0.1, { speed: 0 });
+
+    expect(accelerationLean).toBeGreaterThan(0.1);
+    expect(Math.abs(actor._animationLayers.locomotion.accelerationLean)).toBeGreaterThan(0.02);
+    expect(actor._animationLayers.locomotion.turnWeight).toBeGreaterThan(0.5);
+    expect(actor._animationLayers.locomotion.turnInPlaceWeight).toBeGreaterThan(0.4);
+    expect(actor._parts.leftLeg.rotation.y).toBeGreaterThan(0.1);
+    expect(actor._parts.rightLeg.rotation.y).toBeLessThan(-0.1);
+
+    actor.update(0.1, { speed: 0 });
+    expect(actor._animationLayers.locomotion.accelerationLean).toBeLessThan(0);
+
+    actor.dispose();
+  });
+
+  it('routes shield impact recoil through forearm, shoulder, torso, and rear foot', () => {
+    const actor = createSoldierActor({
+      id: 'shield-recoil-chain',
+      factionId: FactionId.SAINT_ORENS,
+      role: SoldierRole.MAN_AT_ARMS,
+    });
+    const blockPose = { state: WeaponState.BLOCKING, progress: 0 };
+    actor.update(0, { combatPose: blockPose });
+    const baseline = {
+      torso: actor._parts.body.rotation.x,
+      shoulder: actor._parts.leftArm.rotation.x,
+      forearm: actor._parts.leftForearm.rotation.x,
+      shield: actor._parts.shieldMount.rotation.x,
+      rearLeg: actor._parts.leftLeg.rotation.x,
+      rearKnee: actor._parts.leftKnee.rotation.x,
+    };
+    actor.combatant.setGuard({
+      active: true,
+      facing: new Vector3(0, 0, 1),
+      now: 1,
+      startedAt: 0,
+      canParry: false,
+      stability: 20,
+    });
+    actor.combatant.receiveImpact({
+      damage: 8,
+      damageType: 'blunt',
+      direction: new Vector3(0, 0, -1),
+      hitZone: 'torso',
+      severity: 0.9,
+    });
+    actor.update(1 / 60, { combatPose: blockPose });
+
+    expect(actor._reaction.kind).toBe('block');
+    expect(actor._parts.body.rotation.x).toBeLessThan(baseline.torso - 0.05);
+    expect(actor._parts.leftArm.rotation.x).toBeLessThan(baseline.shoulder - 0.15);
+    expect(actor._parts.leftForearm.rotation.x).toBeLessThan(baseline.forearm - 0.12);
+    expect(actor._parts.shieldMount.rotation.x).toBeGreaterThan(baseline.shield + 0.15);
+    expect(actor._parts.leftLeg.rotation.x).toBeGreaterThan(baseline.rearLeg + 0.05);
+    expect(actor._parts.leftKnee.rotation.x).toBeLessThan(baseline.rearKnee - 0.08);
+
+    actor.dispose();
+  });
+
+  it('keeps locomotion and weapon layers intact while applying additive reaction', () => {
+    const actor = createSoldierActor({
+      id: 'reaction-layering',
+      factionId: FactionId.VANGUARD,
+      role: SoldierRole.MAN_AT_ARMS,
+    });
+    const combatPose = {
+      state: WeaponState.WINDUP,
+      progress: 0.8,
+      attack: { arc: [0.9, -0.4] },
+    };
+    actor.object3d.position.z += 0.22;
+    actor.update(0.1, { speed: 2.2, combatPose });
+    const weaponYaw = actor._parts.upperBody.rotation.y;
+    const gaitAngle = actor._parts.leftLeg.rotation.x;
+
+    actor.combatant.receiveImpact({
+      damage: 4,
+      damageType: 'blunt',
+      direction: new Vector3(1, 0, -0.2),
+      hitZone: 'torso',
+      severity: 0.7,
+    });
+    actor.object3d.position.z += 0.08;
+    actor.update(0.05, { speed: 1.6, combatPose });
+
+    expect(actor._animationLayers.locomotion.weight).toBeGreaterThan(0.5);
+    expect(actor._animationLayers.weapon.state).toBe(WeaponState.WINDUP);
+    expect(actor._animationLayers.weapon.weight).toBeGreaterThan(0.9);
+    expect(actor._animationLayers.reaction.kind).toBe('body');
+    expect(actor._animationLayers.reaction.weight).toBeGreaterThan(0.8);
+    expect(Math.abs(actor._parts.upperBody.rotation.y)).toBeGreaterThan(Math.abs(weaponYaw) * 0.7);
+    expect(Math.abs(actor._parts.leftLeg.rotation.x)).toBeGreaterThan(Math.abs(gaitAngle) * 0.25);
+    expect(actor._parts.upperBody.rotation.z).toBeLessThan(-0.15);
 
     actor.dispose();
   });
@@ -449,6 +610,45 @@ describe('SoldierActor visuals', () => {
     });
     expect(repeat._deathVariant).toBe(repeatVariant);
     repeat.dispose();
+  });
+
+  it('smoothly separates overlapping corpses without moving either actor root', () => {
+    const first = createSoldierActor({
+      id: 'corpse-separation-a',
+      factionId: FactionId.VANGUARD,
+    });
+    const second = createSoldierActor({
+      id: 'corpse-separation-b',
+      factionId: FactionId.VANGUARD,
+    });
+    const corpses = [first, second];
+    for (const actor of corpses) actor.setAnimationEnvironment({ queryActors: () => corpses });
+    first.setPosition(0, 0, 0);
+    second.setPosition(0.05, 0, 0.02);
+    first.combatant.receiveImpact({ damage: 999, damageType: 'blunt' });
+    second.combatant.receiveImpact({ damage: 999, damageType: 'blunt' });
+
+    let previous = first.getAvoidancePosition(new Vector3());
+    let maximumStep = 0;
+    for (let frame = 0; frame < 90; frame += 1) {
+      first.update(1 / 60);
+      second.update(1 / 60);
+      const current = first.getAvoidancePosition(new Vector3());
+      maximumStep = Math.max(maximumStep, current.distanceTo(previous));
+      previous = current;
+    }
+    const firstFinal = first.getAvoidancePosition(new Vector3());
+    const secondFinal = second.getAvoidancePosition(new Vector3());
+
+    expect(first.object3d.position.x).toBeCloseTo(0, 8);
+    expect(second.object3d.position.x).toBeCloseTo(0.05, 8);
+    expect(firstFinal.distanceTo(secondFinal)).toBeGreaterThan(0.75);
+    expect(maximumStep).toBeLessThan(0.2);
+    expect(horizontalLength(first._corpsePlacementOffset)).toBeLessThanOrEqual(0.341);
+    expect(horizontalLength(second._corpsePlacementOffset)).toBeLessThanOrEqual(0.341);
+
+    first.dispose();
+    second.dispose();
   });
 });
 

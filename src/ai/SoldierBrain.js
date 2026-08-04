@@ -37,6 +37,12 @@ export class SoldierBrain {
     this.attackDelay = 0.15 + rng() * 0.5;
     this._nearbyActors = [];
     this._combatants = [];
+    this._corpseAvoidance = new Vector3();
+    this._onTargetDeath = () => this._releaseTarget();
+    actor.setAnimationEnvironment?.({
+      terrainHeight,
+      queryActors,
+    });
     this.combat = new MeleeCombatController({
       owner: actor.combatant,
       weapon: createAiWeaponDefinition(
@@ -57,8 +63,23 @@ export class SoldierBrain {
       this._releaseTarget();
       this.state = BrainState.DEAD;
       actor.velocity.set(0, 0, 0);
-      actor.update(dt, { combatPose: this.combat.getPose() });
+      actor.update(dt, {
+        combatPose: this.combat.getPose(),
+        terrainHeight: this.terrainHeight,
+      });
       return;
+    }
+    if (
+      this.target
+      && (
+        !this.target.combatant?.alive
+        || (
+          this.attackCoordinator
+          && !this.attackCoordinator.has(actor, this.target)
+        )
+      )
+    ) {
+      this._releaseTarget();
     }
 
     this.decisionTimer -= dt;
@@ -86,6 +107,7 @@ export class SoldierBrain {
       speed: actor.velocity.length(),
       combatPose: this.combat.getPose(),
       moraleState: context.cohesionState,
+      terrainHeight: this.terrainHeight,
     });
   }
 
@@ -126,11 +148,7 @@ export class SoldierBrain {
         : null,
     });
     if (nextTarget === this.target) return;
-    this._releaseTarget();
-    this.target = nextTarget;
-    if (this.target && this.attackCoordinator && !this.attackCoordinator.reserve(this.actor, this.target)) {
-      this.target = null;
-    }
+    this._setTarget(nextTarget);
   }
 
   _engage(dt, context) {
@@ -235,7 +253,7 @@ export class SoldierBrain {
     if ((context.lod ?? 0) !== 0 || !this.actor.combatant.alive) return;
     const planted = this._isPlantedAttack();
     const playerTarget = this.target?.role === 'player' || this.target?.id === 'player';
-    const radius = this.bodyRadius + (playerTarget ? 1.35 : 0.72);
+    const radius = this.bodyRadius + (playerTarget ? 1.35 : 1.05);
     const neighbors = this.queryActors(
       this.actor.object3d.position,
       radius,
@@ -243,16 +261,24 @@ export class SoldierBrain {
     ) ?? this._nearbyActors;
     let pushX = 0;
     let pushZ = 0;
+    let corpsePushX = 0;
+    let corpsePushZ = 0;
     let overlaps = 0;
+    let corpseOverlaps = 0;
     const position = this.actor.object3d.position;
     for (const other of neighbors) {
-      if (other === this.actor || !other?.combatant?.alive) continue;
-      const otherPosition = other.object3d?.position;
+      if (other === this.actor || !other?.combatant) continue;
+      const corpse = !other.combatant.alive;
+      const otherPosition = corpse
+        ? other.getAvoidancePosition?.(_otherPosition) ?? other.object3d?.position
+        : other.object3d?.position;
       if (!otherPosition) continue;
       const otherRadius = other.role === 'player'
         ? 0.78
-        : other.brain?.bodyRadius ?? 0.42;
-      const minDistance = this.bodyRadius + otherRadius + (other.role === 'player' ? 0.42 : 0.08);
+        : corpse ? (other.radius ?? 0.42) * 0.82 : other.brain?.bodyRadius ?? 0.42;
+      const minDistance = this.bodyRadius + otherRadius + (
+        other.role === 'player' ? 0.42 : corpse ? 0.12 : 0.08
+      );
       let dx = position.x - otherPosition.x;
       let dz = position.z - otherPosition.z;
       const distanceSq = dx * dx + dz * dz;
@@ -268,14 +294,35 @@ export class SoldierBrain {
         dz /= distance;
       }
       const penetration = minDistance - (distanceSq < 0.0001 ? 0 : distance);
-      pushX += dx * penetration;
-      pushZ += dz * penetration;
+      if (corpse) {
+        const corpsePenetration = penetration + Math.min(0.28, penetration * 0.42);
+        corpsePushX += dx * corpsePenetration;
+        corpsePushZ += dz * corpsePenetration;
+        corpseOverlaps += 1;
+      } else {
+        pushX += dx * penetration;
+        pushZ += dz * penetration;
+      }
       overlaps += 1;
     }
-    if (overlaps === 0) return;
+    _corpseAvoidanceTarget.set(
+      corpseOverlaps > 0 ? corpsePushX / corpseOverlaps : 0,
+      0,
+      corpseOverlaps > 0 ? corpsePushZ / corpseOverlaps : 0,
+    );
+    this._corpseAvoidance.lerp(
+      _corpseAvoidanceTarget,
+      1 - Math.exp(-dt * (corpseOverlaps > 0 ? 12 : 5)),
+    );
+    pushX += this._corpseAvoidance.x;
+    pushZ += this._corpseAvoidance.z;
+    if (overlaps === 0 && this._corpseAvoidance.lengthSq() < 1e-6) return;
     const strength = planted && !playerTarget
       ? 0
-      : Math.min(playerTarget ? 13 : 8.5, (playerTarget ? 7.2 : 4.2) + overlaps * 0.8);
+      : Math.min(
+        playerTarget ? 13 : 8.5,
+        (playerTarget ? 7.2 : 4.2) + Math.max(1, overlaps) * 0.8,
+      );
     this.actor.velocity.x += pushX * strength * Math.min(1, dt * 12);
     this.actor.velocity.z += pushZ * strength * Math.min(1, dt * 12);
   }
@@ -308,8 +355,21 @@ export class SoldierBrain {
   }
 
   _releaseTarget() {
+    this.target?.combatant?.removeEventListener?.('death', this._onTargetDeath);
     this.attackCoordinator?.release(this.actor);
     this.target = null;
+  }
+
+  _setTarget(target) {
+    if (target === this.target) return true;
+    this._releaseTarget();
+    if (!target) return true;
+    if (this.attackCoordinator && !this.attackCoordinator.reserve(this.actor, target)) {
+      return false;
+    }
+    this.target = target;
+    this.target.combatant?.addEventListener?.('death', this._onTargetDeath);
+    return true;
   }
 }
 
@@ -349,3 +409,5 @@ function createAiWeaponDefinition(weapon, telegraphScale, damageScale = 1) {
 
 const _delta = new Vector3();
 const _desired = new Vector3();
+const _otherPosition = new Vector3();
+const _corpseAvoidanceTarget = new Vector3();

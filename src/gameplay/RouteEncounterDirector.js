@@ -25,6 +25,26 @@ export function createRouteEncounterDirector({
   const captain = squads.CAPTAIN_GUARD?.officer
     ?? squads.CAPTAIN_GUARD?.actors.find((actor) => actor.role === 'captain')
     ?? null;
+  const duelPoint = resolveLandmark(
+    landmarks,
+    'duelPoint',
+    offset(landmarks.bridge, 2, 24),
+  );
+  const bridgeGuardPoint = resolveLandmark(
+    landmarks,
+    'bridgeGuardPoint',
+    offset(landmarks.bridge, 0, 22),
+  );
+  const southApproach = resolveLandmark(
+    landmarks,
+    'southApproach',
+    offset(duelPoint, 0, 16),
+  );
+  const captainFall = resolveLandmark(
+    landmarks,
+    'captainFall',
+    offset(duelPoint, -6, 1),
+  );
 
   stageSquad(
     squads.ALLIED_RETINUE,
@@ -49,15 +69,13 @@ export function createRouteEncounterDirector({
   stageSquad(squads.SPEAR_LINE, landmarks.spearLine, new Vector3(0, 0, 1));
   stageSquad(
     squads.BRIDGE_GUARD,
-    offset(landmarks.bridge, 0, 22),
+    bridgeGuardPoint,
     new Vector3(0, 0, 1),
   );
   stageSquad(
     squads.CAPTAIN_GUARD,
-    // Keep the authored duel on the accessible south approach rather than
-    // behind the bridge gate/parapet colliders.
-    offset(landmarks.bridge, 5, 14),
-    new Vector3(-0.06, 0, 1),
+    duelPoint,
+    directionTo(duelPoint, landmarks.spearLine),
   );
 
   for (const squad of [
@@ -73,6 +91,7 @@ export function createRouteEncounterDirector({
   squads.ALLIED_RETINUE?.issueOrder(SquadOrder.HOLD);
 
   const director = new StagedEncounterDirector({ simulation });
+  let disposeCaptainFall = () => {};
   const announceActivation = ({ beat }) => {
     events?.emit?.('battlefield:stage-activated', {
       id: beat.id,
@@ -126,8 +145,8 @@ export function createRouteEncounterDirector({
   director.addBeat({
     id: 'bridge-perimeter',
     stages: [MissionStage.CAPTAIN],
-    position: landmarks.bridge,
-    radius: 96,
+    position: bridgeGuardPoint,
+    radius: Math.max(24, horizontalDistance(bridgeGuardPoint, southApproach) + 0.5),
     squads: [squads.BRIDGE_GUARD],
     onActivate(payload) {
       squads.BRIDGE_GUARD?.issueOrder(SquadOrder.BRACE);
@@ -136,21 +155,37 @@ export function createRouteEncounterDirector({
   });
 
   if (captain) {
-    captain.combatant.addEventListener('death', () => {
-      // Keep the final bridge approach readable instead of leaving the
-      // featured corpse directly under the player's camera.
-      const side = captain.object3d.position.x >= landmarks.bridge.x ? 1 : -1;
-      captain.object3d.position.x += side * 2.4;
-      captain.object3d.position.z += 1.2;
-    });
+    let fallElapsed = null;
+    let fallStart = null;
+    let fallTarget = null;
+    const settleDuration = 1.05;
+    const beginCaptainFall = () => {
+      fallElapsed = 0;
+      fallStart = captain.object3d.position.clone();
+      fallTarget = resolveCaptainFallTarget(fallStart, captainFall, duelPoint);
+      if (captain.velocity?.set) captain.velocity.set(0, 0, 0);
+      captain.object3d.userData.captainFallStart = fallStart.clone();
+      captain.object3d.userData.captainFallTarget = fallTarget.clone();
+      captain.object3d.userData.captainFallSettled = false;
+      if (captain._lastLocomotionPosition?.copy) {
+        captain._lastLocomotionPosition.copy(fallStart);
+      }
+      for (const name of ['FactionStandard', 'MidStandardPivot']) {
+        const standard = captain.object3d.getObjectByName(name);
+        if (standard) standard.visible = false;
+      }
+    };
+    captain.combatant.addEventListener('death', beginCaptainFall);
+    disposeCaptainFall = () => {
+      captain.combatant.removeEventListener('death', beginCaptainFall);
+    };
     director.setCaptainEncounter({
       stage: MissionStage.CAPTAIN,
-      position: landmarks.bridge,
-      radius: 72,
+      position: duelPoint,
+      radius: Math.max(14, horizontalDistance(duelPoint, southApproach) - 3),
       captain,
-    squads: [squads.CAPTAIN_GUARD],
+      squads: [squads.CAPTAIN_GUARD],
       onActivate() {
-        const duelPoint = offset(landmarks.bridge, 5, 14);
         squads.CAPTAIN_GUARD?.issueOrder(SquadOrder.HOLD, { target: duelPoint });
         squads.BRIDGE_GUARD?.issueOrder(SquadOrder.RETREAT);
         captain.brain?.configureEncounter?.({
@@ -211,6 +246,23 @@ export function createRouteEncounterDirector({
         },
       ],
     });
+
+    const baseUpdate = director.update.bind(director);
+    director.update = (delta, context) => {
+      baseUpdate(delta, context);
+      if (fallElapsed === null || !fallStart || !fallTarget) return;
+      fallElapsed = Math.min(settleDuration, fallElapsed + Math.max(0, delta));
+      const t = smoothstep(fallElapsed / settleDuration);
+      captain.object3d.position.lerpVectors(fallStart, fallTarget, t);
+      if (captain._lastLocomotionPosition?.copy) {
+        captain._lastLocomotionPosition.copy(captain.object3d.position);
+      }
+      if (fallElapsed >= settleDuration) {
+        captain.object3d.position.copy(fallTarget);
+        captain.object3d.userData.captainFallSettled = true;
+        fallElapsed = null;
+      }
+    };
   }
 
   return {
@@ -218,6 +270,7 @@ export function createRouteEncounterDirector({
     squads,
     captain,
     dispose() {
+      disposeCaptainFall();
       director.dispose();
     },
   };
@@ -250,6 +303,42 @@ function offset(position, x, z) {
 
 function directionTo(from, to) {
   return new Vector3(to.x - from.x, 0, to.z - from.z).normalize();
+}
+
+function horizontalDistance(a, b) {
+  return Math.hypot(a.x - b.x, a.z - b.z);
+}
+
+function resolveLandmark(landmarks, name, fallback) {
+  return landmarks[name]?.clone?.() ?? fallback;
+}
+
+function resolveCaptainFallTarget(start, authoredTarget, duelPoint) {
+  const target = authoredTarget.clone();
+  const maxSlide = 5.6;
+  const dx = target.x - start.x;
+  const dz = target.z - start.z;
+  const distance = Math.hypot(dx, dz);
+  if (distance > maxSlide) {
+    const scale = maxSlide / distance;
+    target.x = start.x + dx * scale;
+    target.z = start.z + dz * scale;
+    target.y = start.y + (target.y - start.y) * scale;
+  }
+
+  // Preserve the centre lane from the south approach to the bridge. Even if
+  // the killing blow lands off-mark, the corpse eases toward the authored
+  // west-side verge instead of becoming a new blocker or intersecting stone.
+  const centreClearance = 3.8;
+  if (Math.abs(target.x - duelPoint.x) < centreClearance) {
+    target.x = duelPoint.x - centreClearance;
+  }
+  return target;
+}
+
+function smoothstep(value) {
+  const t = Math.max(0, Math.min(1, value));
+  return t * t * (3 - 2 * t);
 }
 
 export default createRouteEncounterDirector;

@@ -286,7 +286,7 @@ function createMissionSystem(context) {
         radius: 180,
         moraleShift: 0.22,
         enemyShock: 0.32,
-        advanceTarget: landmarks.bridge,
+        advanceTarget: landmarks.duelPoint ?? landmarks.bridge,
       });
       simulation.setDistantFormationState?.('orens-ford-ranks', 'fractured', { speed: -0.7 });
       setObjective(MissionStage.CAPTAIN, {
@@ -323,10 +323,11 @@ function createMissionSystem(context) {
         mission.kills = 1;
       }
     } else if (transition.current === MissionStage.WON) {
+      plantStandardAtRaiseLandmark(standardProp, landmarks);
       battlefield.triggerReversal({
         id: 'bridge-secured',
         factionId: FactionId.VANGUARD,
-        position: landmarks.bridge,
+        position: landmarks.standardRaise ?? landmarks.bridge,
         radius: 260,
         moraleShift: 0.4,
         enemyShock: 0.45,
@@ -508,13 +509,13 @@ function createMissionSystem(context) {
           // Keep the authored duel readable: allied units contain the bridge
           // perimeter instead of collapsing onto the captain's exact point.
           battlefield.advance(
-            landmarks.bridge.clone().add(new Vector3(-8, 0, 26)),
+            flankContainmentPoint(landmarks),
             { radius: 170 },
           )
         )
         : battlefield.advance(
           mission.stage === MissionStage.CAPTAIN || mission.stage === MissionStage.VICTORY
-            ? landmarks.bridge
+            ? landmarks.duelPoint ?? landmarks.bridge
             : landmarks.spearLine,
           { radius: 170 },
         );
@@ -571,9 +572,19 @@ function createMissionSystem(context) {
       player.position,
       { compact: true },
     );
-    bridgeMarker.update(landmarks.bridge, active.bridge, bob, player.position);
+    bridgeMarker.update(
+      landmarks.standardRaise ?? landmarks.bridge,
+      active.bridge,
+      bob,
+      player.position,
+    );
 
-    if (mission.standardRecovered && player.enabled) {
+    if (
+      mission.standardRecovered
+      && player.enabled
+      && mission.stage !== MissionStage.VICTORY
+      && mission.stage !== MissionStage.WON
+    ) {
       standardProp.visible = true;
       standardProp.position.set(
         player.position.x - Math.cos(player.yaw) * 0.45,
@@ -602,7 +613,7 @@ function createMissionSystem(context) {
       interaction = { key: 'E', label: 'Recover the Ashen Standard' };
     } else if (
       mission.stage === MissionStage.VICTORY
-      && interactionInView(landmarks.bridge, 8, 0.5)
+      && interactionInView(landmarks.standardRaise ?? landmarks.bridge, 8, 0.5)
     ) {
       interaction = { key: 'E', label: 'Raise the standard over the bridge' };
     }
@@ -747,7 +758,7 @@ function createMissionSystem(context) {
         // requiring the player to repeatedly refresh it.
         if (lastCommand === 'advance' && elapsed - lastFocusRefreshAt >= 5) {
           alliedSquad?.issueOrder?.('hold', {
-            target: landmarks.bridge.clone().add(new Vector3(-8, 0, 26)),
+            target: flankContainmentPoint(landmarks),
           });
           lastFocusRefreshAt = elapsed;
         }
@@ -870,6 +881,18 @@ function attachStandardToPlayer(_player, standard, markerRoot) {
 function distance2D(a, b) {
   if (!a || !b) return Infinity;
   return Math.hypot(a.x - b.x, a.z - b.z);
+}
+
+function flankContainmentPoint(landmarks) {
+  const duelPoint = landmarks.duelPoint ?? landmarks.bridge;
+  return duelPoint.clone().add(new Vector3(-9, 0, 6));
+}
+
+function plantStandardAtRaiseLandmark(standard, landmarks) {
+  const socket = landmarks.standardRaise ?? landmarks.bridge;
+  standard.visible = true;
+  standard.position.copy(socket);
+  standard.rotation.set(0, 0, 0);
 }
 
 function disposeGroup(root) {

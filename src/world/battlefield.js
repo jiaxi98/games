@@ -458,10 +458,55 @@ function createStonePier(materials) {
   return pier;
 }
 
+function createBridgeheadSmoke(quality = 'high') {
+  const count = quality === 'low' ? 3 : 5;
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x343738,
+    roughness: 1,
+    transparent: true,
+    opacity: 0.16,
+    depthWrite: false,
+  });
+  const smoke = new THREE.InstancedMesh(
+    new THREE.IcosahedronGeometry(1, 1),
+    material,
+    count,
+  );
+  smoke.name = 'BridgeheadSmoke';
+  smoke.castShadow = false;
+  smoke.receiveShadow = false;
+  smoke.renderOrder = 1;
+  smoke.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  const dummy = new THREE.Object3D();
+  for (let index = 0; index < count; index += 1) {
+    const side = index % 2 ? 1 : -1;
+    const tier = Math.floor(index / 2);
+    setInstanceTransform(smoke, index, {
+      position: new THREE.Vector3(
+        side * (13.4 + tier * 0.55),
+        2.4 + tier * 1.18,
+        27.5 + (tier % 2) * 2.8,
+      ),
+      rotation: new THREE.Euler(
+        index * 0.17,
+        index * 0.83,
+        side * 0.08,
+      ),
+      scale: new THREE.Vector3(
+        1.2 + tier * 0.24,
+        1.05 + tier * 0.36,
+        1 + (index % 3) * 0.18,
+      ),
+    }, dummy);
+  }
+  return smoke;
+}
+
 export function createStoneBridgeAndFord({
   materials,
   sampleHeight,
   position = new THREE.Vector3(-7, 0, -174),
+  quality = 'high',
 }) {
   const landmarkScale = 1.28;
   const group = new THREE.Group();
@@ -475,10 +520,34 @@ export function createStoneBridgeAndFord({
   deck.position.y = 3.4;
   group.add(deck);
 
-  [-6.35, 6.35].forEach((x) => {
-    const parapet = box(1.15, 2, 31, materials.limestoneDark, 'BridgeParapet');
-    parapet.position.set(x, 4.65, 0);
-    group.add(parapet);
+  // Keep the northern span defensible while opening the southern bridgehead
+  // into a readable duel floor. The stepped, broken sections preserve the
+  // bridge silhouette without turning either parapet into a full-screen wall.
+  const collisionMeshes = [];
+  const parapetSections = [
+    { z: -7.6, depth: 15.8, height: 1.48 },
+    { z: 3.95, depth: 4.7, height: 0.9 },
+    { z: 11.9, depth: 4.7, height: 0.46 },
+  ];
+  [-6.35, 6.35].forEach((x, sideIndex) => {
+    parapetSections.forEach((section, sectionIndex) => {
+      if ((sideIndex + sectionIndex) % 3 === 1 && sectionIndex === 1) return;
+      const parapet = box(
+        1.15,
+        section.height,
+        section.depth,
+        sectionIndex === 2 ? materials.limestone : materials.limestoneDark,
+        'BridgeParapet',
+      );
+      parapet.position.set(
+        x,
+        3.95 + section.height * 0.5,
+        section.z + (sideIndex === 0 && sectionIndex === 1 ? -0.65 : 0),
+      );
+      parapet.userData.bridgeSection = sectionIndex === 2 ? 'low-south' : 'broken-span';
+      group.add(parapet);
+      collisionMeshes.push(parapet);
+    });
   });
 
   [-9, 9].forEach((z) => {
@@ -491,6 +560,7 @@ export function createStoneBridgeAndFord({
     const post = box(2.2, 7.5, 2.2, materials.limestone, 'BridgeGatePost');
     post.position.set(side * 5.5, 7, -13.2);
     group.add(post);
+    collisionMeshes.push(post);
     return post;
   });
   const gateBeam = box(13, 1.3, 2.2, materials.timber, 'BridgeGateBeam');
@@ -516,6 +586,157 @@ export function createStoneBridgeAndFord({
   coping.position.set(0, 11.05, -13.2);
   group.add(coping);
 
+  const approachPaving = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1.35, 0.025, 1.85),
+    materials.limestoneDark,
+    36,
+  );
+  approachPaving.name = 'BridgeheadApproachPaving';
+  approachPaving.castShadow = true;
+  approachPaving.receiveShadow = true;
+  approachPaving.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  const pavingDummy = new THREE.Object3D();
+  let pavingIndex = 0;
+  for (let row = 0; row < 6; row += 1) {
+    for (let column = 0; column < 6; column += 1) {
+      const localX = (column - 2.5) * 1.76 + (row % 2 ? 0.18 : -0.12);
+      const localZ = 20.8 + row * 2.34;
+      const worldX = position.x + localX * landmarkScale;
+      const worldZ = position.z + localZ * landmarkScale;
+      setInstanceTransform(approachPaving, pavingIndex, {
+        position: new THREE.Vector3(
+          localX,
+          (sampleHeight(worldX, worldZ) - baseY) / landmarkScale + 0.008,
+          localZ,
+        ),
+        rotation: new THREE.Euler(
+          0,
+          ((row + column) % 3 - 1) * 0.028,
+          ((row * 2 + column) % 3 - 1) * 0.016,
+        ),
+        scale: new THREE.Vector3(
+          0.9 + ((row + column) % 3) * 0.055,
+          1,
+          0.92 + ((row * 3 + column) % 2) * 0.06,
+        ),
+      }, pavingDummy);
+      pavingIndex += 1;
+    }
+  }
+  group.add(approachPaving);
+
+  const approachWalls = [
+    { side: -1, x: -8.55, z: 19.6, depth: 5.4, yaw: -0.1 },
+    { side: -1, x: -10.45, z: 29.4, depth: 7.8, yaw: -0.16 },
+    { side: 1, x: 8.55, z: 19.6, depth: 5.4, yaw: 0.1 },
+    { side: 1, x: 10.45, z: 29.4, depth: 7.8, yaw: 0.16 },
+  ];
+  approachWalls.forEach(({ side, x, z, depth, yaw }, index) => {
+    const worldX = position.x + x * landmarkScale;
+    const worldZ = position.z + z * landmarkScale;
+    const height = index % 2 ? 0.68 : 0.86;
+    const wall = box(
+      0.78,
+      height,
+      depth,
+      index % 2 ? materials.rubble : materials.limestoneDark,
+      'BridgeApproachWall',
+    );
+    wall.position.set(
+      x,
+      (sampleHeight(worldX, worldZ) - baseY) / landmarkScale + height * 0.42,
+      z,
+    );
+    wall.rotation.y = yaw;
+    wall.userData.flank = side < 0 ? 'west' : 'east';
+    group.add(wall);
+    collisionMeshes.push(wall);
+
+    if (index % 2 === 1) {
+      const rubble = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.72, 0),
+        materials.rubble,
+      );
+      rubble.name = 'BridgeApproachRubble';
+      rubble.position.set(
+        x - side * 0.75,
+        wall.position.y + 0.18,
+        z - 2.7,
+      );
+      rubble.scale.set(1.35, 0.72, 1.05);
+      rubble.rotation.set(0.08, side * 0.46, -side * 0.12);
+      rubble.castShadow = true;
+      rubble.receiveShadow = true;
+      group.add(rubble);
+    }
+  });
+
+  [
+    { x: -10.15, z: 23.2, yaw: -0.34 },
+    { x: 10.15, z: 23.2, yaw: 0.34 },
+  ].forEach(({ x, z, yaw }, index) => {
+    const barricade = new THREE.Group();
+    barricade.name = 'BridgeheadTimberBarricade';
+    const beam = box(4.1, 0.22, 0.26, materials.timber, 'BarricadeBeam');
+    beam.position.y = 1.02;
+    beam.rotation.z = index ? -0.09 : 0.09;
+    barricade.add(beam);
+    [-1, 1].forEach((side) => {
+      const stake = box(0.18, 2.2, 0.18, materials.timberLight, 'BarricadeStake');
+      stake.position.set(side * 1.35, 0.82, 0);
+      stake.rotation.z = side * 0.34;
+      barricade.add(stake);
+    });
+    const worldX = position.x + x * landmarkScale;
+    const worldZ = position.z + z * landmarkScale;
+    barricade.position.set(
+      x,
+      (sampleHeight(worldX, worldZ) - baseY) / landmarkScale,
+      z,
+    );
+    barricade.rotation.y = yaw;
+    group.add(barricade);
+  });
+
+  const captainBanner = createStandard({
+    materials,
+    sampleHeight,
+    position: new THREE.Vector3(
+      position.x - 10.9 * landmarkScale,
+      0,
+      position.z + 18.8 * landmarkScale,
+    ),
+    color: 'red',
+    height: 6.9 * landmarkScale,
+    name: 'BridgeheadCaptainBanner',
+  });
+  captainBanner.position.sub(group.position).divideScalar(landmarkScale);
+  captainBanner.scale.multiplyScalar(1 / landmarkScale);
+  captainBanner.rotation.y = -0.12;
+  group.add(captainBanner);
+
+  // A visible but empty socket makes the post-kill route legible before the
+  // player's carried standard is planted here by mission presentation.
+  const raiseSocket = cylinder(
+    0.34,
+    0.48,
+    0.72,
+    8,
+    materials.limestoneDark,
+    'AshenStandardRaiseSocket',
+  );
+  const raiseLocalX = 4.65;
+  const raiseLocalZ = 7.9;
+  const raiseWorldX = position.x + raiseLocalX * landmarkScale;
+  const raiseWorldZ = position.z + raiseLocalZ * landmarkScale;
+  raiseSocket.position.set(
+    raiseLocalX,
+    3.95 + 0.36,
+    raiseLocalZ,
+  );
+  group.add(raiseSocket);
+  group.add(createBridgeheadSmoke(quality));
+
   // Ford stones form a second, exposed crossing east of the bridge.
   for (let row = 0; row < 8; row += 1) {
     for (let column = 0; column < 3; column += 1) {
@@ -528,7 +749,7 @@ export function createStoneBridgeAndFord({
       const worldZ = position.z - 13 + row * 3.8;
       stone.position.set(
         23 + column * 2.2,
-        sampleHeight(worldX, worldZ) - baseY + 0.8,
+        (sampleHeight(worldX, worldZ) - baseY) / landmarkScale + 0.8,
         -13 + row * 3.8,
       );
       stone.scale.y = 0.48;
@@ -538,6 +759,43 @@ export function createStoneBridgeAndFord({
     }
   }
 
+  const duelPoint = new THREE.Vector3(
+    position.x + 1.35 * landmarkScale,
+    0,
+    position.z + 27.6 * landmarkScale,
+  );
+  duelPoint.y = sampleHeight(duelPoint.x, duelPoint.z);
+  const captainFall = new THREE.Vector3(
+    position.x - 2.8 * landmarkScale,
+    0,
+    position.z + 26.8 * landmarkScale,
+  );
+  captainFall.y = sampleHeight(captainFall.x, captainFall.z);
+  const bridgeGuardPoint = new THREE.Vector3(
+    position.x,
+    0,
+    position.z + 18.1 * landmarkScale,
+  );
+  bridgeGuardPoint.y = sampleHeight(bridgeGuardPoint.x, bridgeGuardPoint.z);
+  const southApproach = new THREE.Vector3(
+    position.x,
+    0,
+    position.z + 43 * landmarkScale,
+  );
+  southApproach.y = sampleHeight(southApproach.x, southApproach.z);
+  const standardRaise = new THREE.Vector3(
+    raiseWorldX,
+    baseY + 3.95 * landmarkScale,
+    raiseWorldZ,
+  );
+  const postKillRoute = new THREE.Vector3(
+    position.x,
+    baseY + 3.95 * landmarkScale,
+    position.z + 13.3 * landmarkScale,
+  );
+
+  group.updateWorldMatrix(true, true);
+
   return {
     group,
     bridgeSurfaceHeight: baseY + 3.95 * landmarkScale,
@@ -545,32 +803,19 @@ export function createStoneBridgeAndFord({
       new THREE.Vector2(position.x - 5.75 * landmarkScale, position.z - 15.5 * landmarkScale),
       new THREE.Vector2(position.x + 5.75 * landmarkScale, position.z + 15.5 * landmarkScale),
     ),
-    colliders: [
-      new THREE.Box3().setFromCenterAndSize(
-        new THREE.Vector3(
-          position.x - 6.35 * landmarkScale,
-          baseY + 5 * landmarkScale,
-          position.z,
-        ),
-        new THREE.Vector3(
-          1.15 * landmarkScale,
-          4 * landmarkScale,
-          31 * landmarkScale,
-        ),
-      ),
-      new THREE.Box3().setFromCenterAndSize(
-        new THREE.Vector3(
-          position.x + 6.35 * landmarkScale,
-          baseY + 5 * landmarkScale,
-          position.z,
-        ),
-        new THREE.Vector3(
-          1.15 * landmarkScale,
-          4 * landmarkScale,
-          31 * landmarkScale,
-        ),
-      ),
-    ],
+    duelArenaBounds: new THREE.Box2(
+      new THREE.Vector2(position.x - 9.2 * landmarkScale, position.z + 17 * landmarkScale),
+      new THREE.Vector2(position.x + 9.2 * landmarkScale, position.z + 36 * landmarkScale),
+    ),
+    landmarks: Object.freeze({
+      duelPoint,
+      captainFall,
+      bridgeGuardPoint,
+      southApproach,
+      standardRaise,
+      postKillRoute,
+    }),
+    colliders: collisionMeshes.map((mesh) => new THREE.Box3().setFromObject(mesh)),
   };
 }
 

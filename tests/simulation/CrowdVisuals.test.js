@@ -57,6 +57,46 @@ describe('CrowdVisuals', () => {
     expect(visual.object3d.children.every((mesh) => mesh.frustumCulled)).toBe(true);
     expect(visual.object3d.children.every((mesh) => mesh.boundingSphere.radius > 20)).toBe(true);
     expect(visual.object3d.children.every((mesh) => mesh.boundingBox.max.x > 38)).toBe(true);
+    expect(visual.getTelemetry()).toMatchObject({
+      count: 640,
+      capacity: 1024,
+      available: 384,
+      truncated: false,
+      peakCount: 640,
+      resizeCount: 1,
+      meshes: 7,
+    });
+
+    visual.dispose();
+  });
+
+  it('never truncates later bursts after shrinking its live count', () => {
+    const visual = createCrowdVisuals({
+      capacity: 2,
+      factionId: FactionId.VANGUARD,
+    });
+    const createInstances = (count) => Array.from({ length: count }, (_, index) => ({
+      position: new Vector3(index, 0, 0),
+      heading: 0,
+      state: 'ordered',
+    }));
+
+    visual.setInstances(createInstances(300));
+    visual.update();
+    visual.setInstances(createInstances(3));
+    visual.update();
+    visual.setInstances(createInstances(700));
+    visual.update();
+
+    expect(visual.count).toBe(700);
+    expect(visual.object3d.children.every((mesh) => mesh.count === 700)).toBe(true);
+    expect(visual.getTelemetry()).toMatchObject({
+      count: 700,
+      capacity: 1024,
+      truncated: false,
+      peakCount: 700,
+      resizeCount: 2,
+    });
 
     visual.dispose();
   });

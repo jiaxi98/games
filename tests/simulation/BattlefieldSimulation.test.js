@@ -217,4 +217,113 @@ describe('BattlefieldSimulation', () => {
     expect(allies.active).toBe(true);
     simulation.dispose();
   });
+
+  it('reports honest LOD, squad, crowd capacity, and target-integrity telemetry', () => {
+    const simulation = createBattlefieldSimulation({
+      farVisuals: true,
+      nearDistance: 10,
+      midDistance: 30,
+    });
+    const allies = simulation.createSquad({
+      id: 'telemetry-allies',
+      factionId: FactionId.VANGUARD,
+      count: 3,
+      anchor: new Vector3(),
+    });
+    const enemies = simulation.createSquad({
+      id: 'telemetry-enemies',
+      factionId: FactionId.SAINT_ORENS,
+      count: 2,
+      anchor: new Vector3(0, 0, 8),
+    });
+    simulation.createSquad({
+      id: 'telemetry-dormant',
+      factionId: FactionId.SAINT_ORENS,
+      count: 2,
+      anchor: new Vector3(0, 0, 50),
+      active: false,
+    });
+    simulation.addDistantFormation({
+      id: 'telemetry-ranks',
+      factionId: FactionId.VANGUARD,
+      count: 40,
+      anchor: new Vector3(0, 0, -80),
+    });
+    allies.actors[0].setPosition(0, 0, 5);
+    allies.actors[1].setPosition(0, 0, 20);
+    allies.actors[2].setPosition(0, 0, 40);
+    allies.actors[0].brain.target = enemies.actors[0];
+    simulation.attackCoordinator.reserve(allies.actors[0], enemies.actors[0]);
+
+    simulation.update(0.1, new Vector3());
+    const telemetry = simulation.getTelemetrySnapshot(new Vector3());
+
+    expect(telemetry).toMatchObject({
+      activeSquads: 2,
+      dormantSquads: 1,
+      actors: {
+        active: 5,
+        dormant: 2,
+        engaged: 1,
+        targetReservations: 1,
+        targetLosses: 0,
+      },
+      lod: {
+        near: 3,
+        mid: 1,
+        far: 3,
+        total: 7,
+      },
+      crowd: {
+        expectedCount: 43,
+        count: 43,
+        capacityShortfall: 0,
+        countMismatch: false,
+        truncated: false,
+      },
+      distantFormations: {
+        count: 1,
+        instances: 40,
+      },
+    });
+    expect(telemetry.crowd.capacity).toBeGreaterThanOrEqual(telemetry.crowd.count);
+    expect(telemetry.activeSquadIds).toEqual([
+      'telemetry-allies',
+      'telemetry-enemies',
+    ]);
+
+    simulation.dispose();
+  });
+
+  it('keeps reservations and targets valid across multiple seeded melee updates', () => {
+    for (const seed of [7, 19, 43, 101]) {
+      const simulation = createBattlefieldSimulation({
+        seed,
+        farVisuals: false,
+        maxAttackersPerTarget: 2,
+      });
+      simulation.createSquad({
+        id: `allies-${seed}`,
+        factionId: FactionId.VANGUARD,
+        count: 4,
+        anchor: new Vector3(0, 0, 0),
+        role: 'man-at-arms',
+      });
+      simulation.createSquad({
+        id: `enemies-${seed}`,
+        factionId: FactionId.SAINT_ORENS,
+        count: 4,
+        anchor: new Vector3(0, 0, 3),
+        role: 'man-at-arms',
+      });
+
+      for (let frame = 0; frame < 120; frame += 1) {
+        simulation.update(0.05, new Vector3(0, 2, 1));
+        const telemetry = simulation.getTelemetrySnapshot();
+        expect(telemetry.actors.targetLosses, `seed ${seed}, frame ${frame}`).toBe(0);
+      }
+
+      simulation.dispose();
+    }
+  });
 });

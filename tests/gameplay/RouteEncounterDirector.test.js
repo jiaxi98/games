@@ -65,7 +65,7 @@ describe('RouteEncounterDirector', () => {
 
     route.director.update(0.1, {
       stage: MissionStage.CAPTAIN,
-      playerPosition: landmarks.bridge.clone().add(new Vector3(0, 0, 90)),
+      playerPosition: landmarks.southApproach,
     });
     expect(route.squads.BRIDGE_GUARD.active).toBe(true);
     expect(route.squads.CAPTAIN_GUARD.active).toBe(false);
@@ -73,7 +73,7 @@ describe('RouteEncounterDirector', () => {
 
     route.director.update(0.1, {
       stage: MissionStage.CAPTAIN,
-      playerPosition: landmarks.bridge,
+      playerPosition: landmarks.duelPoint,
     });
     expect(route.squads.CAPTAIN_GUARD.active).toBe(true);
     expect(captain.combatant.targetable).toBe(true);
@@ -89,7 +89,7 @@ describe('RouteEncounterDirector', () => {
 
     route.director.update(0.1, {
       stage: MissionStage.CAPTAIN,
-      playerPosition: landmarks.bridge,
+      playerPosition: landmarks.duelPoint,
     });
     expect(route.director.getCaptainPhase()).toBe('commanding');
     expect(route.squads.BRIDGE_GUARD.order).toBe(SquadOrder.BRACE);
@@ -97,7 +97,7 @@ describe('RouteEncounterDirector', () => {
     captain.combatant.health = captain.combatant.maxHealth * 0.6;
     route.director.update(0.1, {
       stage: MissionStage.CAPTAIN,
-      playerPosition: landmarks.bridge,
+      playerPosition: landmarks.duelPoint,
     });
     expect(route.director.getCaptainPhase()).toBe('pressed');
     expect(route.squads.CAPTAIN_GUARD.order).toBe(SquadOrder.HOLD);
@@ -105,7 +105,7 @@ describe('RouteEncounterDirector', () => {
     captain.combatant.health = captain.combatant.maxHealth * 0.25;
     route.director.update(0.1, {
       stage: MissionStage.CAPTAIN,
-      playerPosition: landmarks.bridge,
+      playerPosition: landmarks.duelPoint,
     });
     expect(route.director.getCaptainPhase()).toBe('desperate');
     expect(route.squads.BRIDGE_GUARD.order).toBe(SquadOrder.RETREAT);
@@ -138,6 +138,51 @@ describe('RouteEncounterDirector', () => {
     route.dispose();
     simulation.dispose();
   });
+
+  it('stages the captain on the authored duel floor and settles the corpse beside the route', () => {
+    const { simulation, landmarks, route } = createHarness();
+    const captain = route.captain;
+
+    expect(captain.object3d.position.distanceTo(landmarks.duelPoint)).toBeLessThan(0.01);
+    route.director.update(0.1, {
+      stage: MissionStage.CAPTAIN,
+      playerPosition: landmarks.duelPoint,
+    });
+
+    const deathOrigin = captain.object3d.position.clone();
+    captain.combatant.receiveImpact({
+      damage: captain.combatant.maxHealth * 2,
+      damageType: 'blunt',
+    });
+    expect(captain.object3d.position.distanceTo(deathOrigin)).toBe(0);
+
+    route.director.update(0.2, {
+      stage: MissionStage.VICTORY,
+      playerPosition: landmarks.duelPoint,
+    });
+    expect(captain.object3d.position.distanceTo(deathOrigin)).toBeGreaterThan(0);
+    expect(captain.object3d.position.distanceTo(landmarks.captainFall)).toBeGreaterThan(0);
+
+    for (let index = 0; index < 10; index += 1) {
+      route.director.update(0.12, {
+        stage: MissionStage.VICTORY,
+        playerPosition: landmarks.duelPoint,
+      });
+    }
+    const settledTarget = captain.object3d.userData.captainFallTarget;
+    expect(settledTarget).toBeTruthy();
+    expect(captain.object3d.position.distanceTo(settledTarget)).toBeLessThan(0.01);
+    expect(captain.object3d.position.distanceTo(deathOrigin)).toBeLessThanOrEqual(5.61);
+    expect(captain.object3d.userData.captainFallSettled).toBe(true);
+    expect(distanceToSegment2D(
+      captain.object3d.position,
+      landmarks.duelPoint,
+      landmarks.standardRaise,
+    )).toBeGreaterThan(4.5);
+
+    route.dispose();
+    simulation.dispose();
+  });
 });
 
 function createHarness() {
@@ -157,6 +202,12 @@ function createHarness() {
     hedgerowRally: new Vector3(-42, 0, 34),
     spearLine: new Vector3(3, 0, -75),
     bridge: new Vector3(-7, 0, -174),
+    duelPoint: new Vector3(-5.272, 0, -138.672),
+    captainFall: new Vector3(-10.584, 0, -139.696),
+    bridgeGuardPoint: new Vector3(-7, 0, -150.832),
+    southApproach: new Vector3(-7, 0, -118.96),
+    standardRaise: new Vector3(-1.048, 0, -163.888),
+    postKillRoute: new Vector3(-7, 0, -156.976),
   };
   const route = createRouteEncounterDirector({
     simulation,
@@ -185,4 +236,19 @@ function createRouteSquads(simulation) {
       ...options,
     });
   }
+}
+
+function distanceToSegment2D(point, start, end) {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const lengthSq = dx * dx + dz * dz;
+  const t = lengthSq > 0
+    ? Math.max(0, Math.min(1, (
+      (point.x - start.x) * dx + (point.z - start.z) * dz
+    ) / lengthSq))
+    : 0;
+  return Math.hypot(
+    point.x - (start.x + dx * t),
+    point.z - (start.z + dz * t),
+  );
 }
